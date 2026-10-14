@@ -80,6 +80,14 @@
       }
     }
     state.ctx = c; state.readOnly = out.readOnly; state.reason = out.reason;
+    if (out.readOnly) {
+      // hide the buttons that only exist to create / change / delete (view and print stay)
+      var st = document.createElement('style');
+      st.textContent = '#addBtn,#newBtn,#saveBtn,#delBtn,#deleteBtn,#addLineBtn,#addUnitBtn,#addSpecBtn,#pl_save,#miAddBtn,' +
+        '[id$="SaveBtn"],[id$="DeleteBtn"],[id$="AddLineBtn"],#rt_saveBtn,#rt_deleteBtn{display:none !important;}';
+      document.head.appendChild(st);
+      document.documentElement.classList.add('oht-ro');
+    }
     return out;
   }
 

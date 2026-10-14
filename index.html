@@ -706,7 +706,7 @@
   OHT_HELP.init({
     getCtx: function () { return ctx; },
     setDrawer: function (o) { setDrawer(o); },
-    onTourDone: function (manual) { if (!manual) { sb.rpc('mark_tour_seen'); if (ctx && ctx.user) ctx.user.tour_seen_at = new Date().toISOString(); } }
+    onTourDone: function (manual) { if (!manual) { sb.rpc('mark_tour_seen').then(function () {}); if (ctx && ctx.user) ctx.user.tour_seen_at = new Date().toISOString(); } }
   });
 
   async function checkProfileAndEnter() {
