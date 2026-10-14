@@ -25,16 +25,18 @@ begin
       raise exception 'A record cannot be moved to another organization' using errcode = '42501';
     end if;
   end if;
-  foreach v_pair in array tg_argv loop
-    v_col := split_part(v_pair, ':', 1); v_tbl := split_part(v_pair, ':', 2);
-    v_val := nullif(to_jsonb(new) ->> v_col, '')::uuid;
-    if v_val is null then continue; end if;
-    if tg_op = 'UPDATE' and v_val is not distinct from nullif(to_jsonb(old) ->> v_col, '')::uuid then continue; end if;
-    execute format('select exists (select 1 from %I where id = $1 and org_id = $2)', v_tbl) into v_ok using v_val, new.org_id;
-    if not v_ok then
-      raise exception 'Invalid reference (%): not part of this organization', v_col using errcode = '42501';
-    end if;
-  end loop;
+  if tg_nargs > 0 then
+    foreach v_pair in array tg_argv loop
+      v_col := split_part(v_pair, ':', 1); v_tbl := split_part(v_pair, ':', 2);
+      v_val := nullif(to_jsonb(new) ->> v_col, '')::uuid;
+      if v_val is null then continue; end if;
+      if tg_op = 'UPDATE' and v_val is not distinct from nullif(to_jsonb(old) ->> v_col, '')::uuid then continue; end if;
+      execute format('select exists (select 1 from %I where id = $1 and org_id = $2)', v_tbl) into v_ok using v_val, new.org_id;
+      if not v_ok then
+        raise exception 'Invalid reference (%): not part of this organization', v_col using errcode = '42501';
+      end if;
+    end loop;
+  end if;
   return new;
 end; $$;
 
