@@ -54,6 +54,7 @@
 <div id="toastStack" class="toast-stack"></div>
 <div class="confirm-scrim" id="confirmScrim"></div>
 
+<script src="mt.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="logo-trim.js"></script>
 <script>
@@ -1492,8 +1493,8 @@
       document.getElementById('content').innerHTML = '<p>Please sign in from the main app.</p>';
       return;
     }
-    var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
-    if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
+    var P = await OHT_MT.load(sb);
+    me.isAdmin = P.isAdmin; me.perms = P.perms || {}; me.readOnly = P.readOnly; me.org = P.org;
     await loadFirm();
     inited = true;
     buildTabs();

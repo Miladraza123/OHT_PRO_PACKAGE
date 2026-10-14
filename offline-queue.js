@@ -12,15 +12,17 @@
 'use strict';
 
 window.OfflineQueue = (function () {
-  var KEY = 'oht:offlineQueue';
-  var FAILED_KEY = 'oht:offlineQueueFailed';
+  // per signed-in user: queued changes must never be sent under another login / organization
+  function userTag() { return (window.OHT_MT && OHT_MT.uid) ? OHT_MT.uid() : 'anon'; }
+  function qKey() { return 'oht:offlineQueue:' + userTag(); }
+  function failedKey() { return 'oht:offlineQueueFailed:' + userTag(); }
   var flushing = false;
 
   function getQueue() {
-    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; }
+    try { return JSON.parse(localStorage.getItem(qKey()) || '[]'); } catch (e) { return []; }
   }
   function setQueue(q) {
-    try { localStorage.setItem(KEY, JSON.stringify(q)); } catch (e) {}
+    try { localStorage.setItem(qKey(), JSON.stringify(q)); } catch (e) {}
   }
   function newUuid() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -47,17 +49,17 @@ window.OfflineQueue = (function () {
   // retry) are never silently discarded — they move here so the app can
   // surface "N changes could not be synced" instead of losing them quietly.
   function getFailed() {
-    try { return JSON.parse(localStorage.getItem(FAILED_KEY) || '[]'); } catch (e) { return []; }
+    try { return JSON.parse(localStorage.getItem(failedKey()) || '[]'); } catch (e) { return []; }
   }
   function pushFailed(op, error) {
     try {
       var f = getFailed();
       f.push({ op: op, error: (error && error.message) || String(error), failed_at: new Date().toISOString() });
-      localStorage.setItem(FAILED_KEY, JSON.stringify(f));
+      localStorage.setItem(failedKey(), JSON.stringify(f));
     } catch (e) {}
   }
   function clearFailed() {
-    try { localStorage.removeItem(FAILED_KEY); } catch (e) {}
+    try { localStorage.removeItem(failedKey()); } catch (e) {}
   }
 
   function isNetworkError(err) {
@@ -143,6 +145,7 @@ window.OfflineQueue = (function () {
 
   async function drain(sb, onDrainedOne) {
     if (flushing) return;
+    if (window.OHT_MT && OHT_MT.readOnly) return; // read-only account: nothing can be saved, keep the queue as it is
     flushing = true;
     try {
       var q = getQueue();

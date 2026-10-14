@@ -192,6 +192,7 @@
 
 <div id="printArea"></div>
 
+<script src="mt.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="offline-queue.js"></script>
 <script src="logo-trim.js"></script>
@@ -4700,8 +4701,8 @@
         emptyStateHtml('Not signed in', 'Please sign in from the main app.');
       return;
     }
-    var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
-    if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
+    var P = await OHT_MT.load(sb);
+    me.isAdmin = P.isAdmin; me.perms = P.perms || {}; me.readOnly = P.readOnly; me.org = P.org;
     await loadMasters();
     fillFilterSelects();
     if (pendingTab && ALL_TABS[pendingTab]) { switchTab(pendingTab); pendingTab = null; }

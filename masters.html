@@ -93,6 +93,7 @@
 
 <div id="toastStack" class="toast-stack"></div>
 
+<script src="mt.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 <script src="offline-queue.js"></script>
@@ -1451,8 +1452,10 @@
       var { data } = await sb.from('app_users').select('*').order('username');
       var all = data || [];
       var { count: activeCount } = await sb.from('app_users').select('id', { count: 'exact', head: true }).eq('is_active', true);
+      var maxUsers = (me.org && me.org.max_users) || 0;
+      var planName = (me.org && me.org.plan_name) || '';
       document.getElementById('content').innerHTML = toolbarHtml('Search users…', '+ New user');
-      setPgSub((activeCount || 0) + ' / 15 active users (Professional plan limit)');
+      setPgSub((activeCount || 0) + ' / ' + maxUsers + ' active users (' + planName + ' plan limit)');
 
       var rows = [];
       function paint() {
@@ -1460,7 +1463,7 @@
         rows = all.filter(function (u) { return !term || String(u.username || '').toLowerCase().indexOf(term) >= 0; });
         var admins = all.filter(function (u) { return u.is_admin; }).length;
         setPgKpis([
-          { label: 'Active users', text: (activeCount || 0) + ' / 15', cls: (activeCount || 0) >= 15 ? 'wn' : 'cr', ring: '✓' },
+          { label: 'Active users', text: (activeCount || 0) + ' / ' + maxUsers, cls: (activeCount || 0) >= maxUsers ? 'wn' : 'cr', ring: '✓' },
           { label: 'Admins', text: String(admins), cls: 'n', ring: 'A' },
           { label: 'All users', text: String(all.length), cls: 'n', ring: '#' }
         ]);
@@ -1894,7 +1897,7 @@
           if (BACKUP_TABLES.indexOf(table) < 0) continue;
           var rows = tables[table];
           if (!rows || !rows.length) continue;
-          var res = await sb.from(table).upsert(rows, { onConflict: 'id' });
+          var res = await sb.from(table).upsert(rows, { onConflict: table === 'period_lock' ? 'org_id' : 'id' });
           if (res.error) { errEl.textContent += table + ': ' + res.error.message + '\n'; continue; }
           counts[table] = rows.length;
         }
@@ -1958,8 +1961,8 @@
       document.getElementById('content').innerHTML = pgShell({ title: 'Masters', body: emptyState('Not signed in', 'Please sign in from the main app.') });
       return;
     }
-    var { data: profile } = await sb.from('app_users').select('username,is_admin,perms').eq('id', userData.user.id).maybeSingle();
-    if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; me.username = profile.username; }
+    var P = await OHT_MT.load(sb);
+    me.isAdmin = P.isAdmin; me.perms = P.perms || {}; me.username = P.username; me.readOnly = P.readOnly; me.org = P.org;
     me.email = userData.user.email;
     buildNav();
     render();

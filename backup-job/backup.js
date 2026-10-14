@@ -104,6 +104,16 @@ async function main() {
     process.exit(1);
   }
 
+  // Multi-tenant: a login only sees its own organization's data, so the backup
+  // account must be an owner / admin login of the organization being backed up
+  // (a superadmin login sees no business data and would produce an empty backup).
+  const { data: ctx } = await sb.rpc('my_context');
+  if (!ctx || !['owner', 'employee'].includes(ctx.role)) {
+    console.error('Backup account is not an organization login (role: ' + (ctx && ctx.role) + '). Use the owner login of the organization to back up.');
+    process.exit(1);
+  }
+  console.log('Backing up organization: ' + (ctx.org && ctx.org.name));
+
   const exported = {};
   const skippedTables = [];
   const failedTables = [];
