@@ -1,19 +1,26 @@
-// admin-user-ops: privileged user management for OHT Accounting System.
+// admin-user-ops: privileged user / organization management for
+// OHT Accounting System (PRO).
 //
 // The app is a static HTML/JS client with only the Supabase anon key — it
 // can never safely create another person's login or reset someone else's
 // password (that needs the service-role key, which must never reach the
-// browser). This function is the one place that key is used: it verifies
-// the CALLER is a signed-in, active app_users.is_admin, then performs the
-// privileged action with a service-role client.
+// browser). This function is the one place that key is used.
 //
-// Actions (POST body: { action, ...params }):
-//   create_user  { email, password, username, is_admin, is_active, perms }
-//     -> creates the Supabase Auth user (email confirmed, no invite email)
-//        and its app_users row in one call.
-//   set_password { user_id, new_password }
-//     -> resets an EXISTING user's password. No current-password check:
-//        the caller's own admin privilege is the authorization.
+// Two kinds of callers (always verified from THEIR OWN token, never from
+// anything the client sends):
+//   * ORGANIZATION ADMIN / OWNER (app_users.is_admin, active, with an org):
+//       create_user  { email, password, username, is_admin, is_active, perms }
+//         -> a login inside the CALLER'S organization only (plan user-limit and
+//            read-only/expired state are enforced by the database).
+//       set_password { user_id, new_password }
+//         -> reset a password of someone in the SAME organization.
+//   * SUPERADMIN (platform_admins):
+//       create_org   { org_name, plan_code, plan_expires_on, owner_name, owner_phone,
+//                      owner_email, owner_password, notes, amount, method, reference }
+//         -> a new organization + its owner login (owners are only ever created here).
+//       sa_set_password    { user_id, new_password }
+//       sa_set_user_active { user_id, is_active }
+//       sa_create_user     { org_id, email, password, username, is_admin, perms }
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -60,15 +67,6 @@ Deno.serve(async (req: Request) => {
   // privileged action — this key is only ever read server-side here.
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-  const { data: callerProfile } = await admin
-    .from("app_users")
-    .select("is_admin, is_active")
-    .eq("id", callerId)
-    .maybeSingle();
-  if (!callerProfile?.is_admin || !callerProfile?.is_active) {
-    return json({ error: "Admins only" }, 403);
-  }
-
   let body: any;
   try {
     body = await req.json();
@@ -76,58 +74,172 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  if (body.action === "create_user") {
-    const { email, password, username, is_admin, is_active, perms } = body;
-    if (!email || !password || !username) {
-      return json({ error: "email, password and username are required" }, 400);
-    }
-    if (String(password).length < 8) {
-      return json({ error: "Password must be at least 8 characters" }, 400);
-    }
+  const { data: platformRow } = await admin
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", callerId)
+    .maybeSingle();
+  const isSuper = !!platformRow;
 
+  const { data: callerProfile } = await admin
+    .from("app_users")
+    .select("is_admin, is_active, is_owner, org_id")
+    .eq("id", callerId)
+    .maybeSingle();
+  const isOrgAdmin = !isSuper && !!callerProfile?.is_admin && !!callerProfile?.is_active && !!callerProfile?.org_id;
+
+  const strong = (pw: unknown) => String(pw ?? "").length >= 8;
+
+  // Is this organization allowed to change data right now?
+  async function orgWritable(orgId: string): Promise<string | null> {
+    const { data: o } = await admin.from("organizations").select("status, plan_expires_on").eq("id", orgId).maybeSingle();
+    if (!o) return "Organization not found";
+    if (o.status !== "active") return "This organization is suspended. Contact support.";
+    if (o.plan_expires_on && o.plan_expires_on < new Date().toISOString().slice(0, 10)) {
+      return "Your plan has expired — the account is read-only. Please renew to add or change users.";
+    }
+    return null;
+  }
+
+  async function makeUser(orgId: string, b: any, isOwner: boolean) {
+    const { email, password, username, is_admin, is_active, perms } = b;
+    if (!email || !password || !username) return json({ error: "email, password and username are required" }, 400);
+    if (!strong(password)) return json({ error: "Password must be at least 8 characters" }, 400);
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
-      email,
+      email: String(email).trim(),
       password,
-      email_confirm: true, // no invite-email flow — admin hands the password to the person directly
+      email_confirm: true, // no invite-email flow — the password is handed over directly
     });
     if (createErr || !created?.user) {
       return json({ error: createErr?.message || "Could not create the sign-in account" }, 400);
     }
-
     const { data: profile, error: profileErr } = await admin
       .from("app_users")
       .insert({
         id: created.user.id,
-        username,
-        is_admin: !!is_admin,
+        org_id: orgId,
+        username: String(username).trim(),
+        is_admin: isOwner ? true : !!is_admin,
+        is_owner: isOwner,
         is_active: is_active !== false,
         perms: perms || {},
       })
       .select()
       .single();
-
     if (profileErr) {
-      // Roll back the orphaned auth account (e.g. the 15-active-user limit
-      // trigger rejected the insert) so a failed create doesn't leave a
-      // login nobody can see or manage from the app.
+      // roll back the orphaned sign-in so a rejected create (e.g. plan user-limit) leaves nothing behind
       await admin.auth.admin.deleteUser(created.user.id).catch(() => {});
       return json({ error: profileErr.message }, 400);
     }
-
     return json({ status: "ok", profile });
+  }
+
+  // ---------------- organization admin / owner ----------------
+  if (body.action === "create_user") {
+    if (!isOrgAdmin) return json({ error: "Admins only" }, 403);
+    const blocked = await orgWritable(callerProfile!.org_id);
+    if (blocked) return json({ error: blocked }, 403);
+    return await makeUser(callerProfile!.org_id, body, false);
   }
 
   if (body.action === "set_password") {
     const { user_id, new_password } = body;
-    if (!user_id || !new_password) {
-      return json({ error: "user_id and new_password are required" }, 400);
-    }
-    if (String(new_password).length < 8) {
-      return json({ error: "Password must be at least 8 characters" }, 400);
+    if (!user_id || !new_password) return json({ error: "user_id and new_password are required" }, 400);
+    if (!strong(new_password)) return json({ error: "Password must be at least 8 characters" }, 400);
+    if (!isOrgAdmin && !isSuper) return json({ error: "Admins only" }, 403);
+    if (!isSuper) {
+      const { data: target } = await admin.from("app_users").select("org_id, is_owner").eq("id", user_id).maybeSingle();
+      if (!target || target.org_id !== callerProfile!.org_id) return json({ error: "User not found in your organization" }, 404);
+      if (target.is_owner && !callerProfile!.is_owner) return json({ error: "Only the owner can change the owner's password" }, 403);
     }
     const { error: pwErr } = await admin.auth.admin.updateUserById(user_id, { password: new_password });
     if (pwErr) return json({ error: pwErr.message }, 400);
     return json({ status: "ok" });
+  }
+
+  // ---------------- superadmin ----------------
+  if (body.action === "create_org") {
+    if (!isSuper) return json({ error: "Superadmin only" }, 403);
+    const { org_name, plan_code, plan_expires_on, owner_name, owner_phone, owner_email, owner_password, notes, amount, method, reference } = body;
+    if (!org_name || !owner_email || !owner_password) {
+      return json({ error: "Business name, owner login email and owner password are required" }, 400);
+    }
+    if (!strong(owner_password)) return json({ error: "Password must be at least 8 characters" }, 400);
+    const { data: plan } = await admin.from("plans").select("code").eq("code", plan_code || "basic").maybeSingle();
+    if (!plan) return json({ error: "Unknown plan" }, 400);
+
+    // 1) the owner's sign-in first (validates the email + password before anything else is created)
+    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+      email: String(owner_email).trim(), password: owner_password, email_confirm: true,
+    });
+    if (createErr || !created?.user) return json({ error: createErr?.message || "Could not create the owner login" }, 400);
+    const ownerId = created.user.id;
+
+    // 2) the organization (the database seeds Period Lock, a default firm and a default warehouse)
+    const { data: org, error: orgErr } = await admin
+      .from("organizations")
+      .insert({
+        name: String(org_name).trim(),
+        plan_code: plan.code,
+        plan_expires_on: plan_expires_on || null,
+        owner_name: owner_name || null,
+        owner_phone: owner_phone || null,
+        owner_email: String(owner_email).trim(),
+        notes: notes || null,
+        created_by: callerId,
+      })
+      .select()
+      .single();
+    if (orgErr || !org) {
+      await admin.auth.admin.deleteUser(ownerId).catch(() => {});
+      return json({ error: orgErr?.message || "Could not create the organization" }, 400);
+    }
+
+    // 3) the owner profile
+    const { error: profErr } = await admin.from("app_users").insert({
+      id: ownerId, org_id: org.id, username: String(owner_name || String(owner_email).split("@")[0]).trim(),
+      is_admin: true, is_owner: true, is_active: true, perms: {},
+    });
+    if (profErr) {
+      await admin.auth.admin.deleteUser(ownerId).catch(() => {});
+      for (const t of ["audit_log", "companies", "warehouses", "period_lock"]) {
+        await admin.from(t).delete().eq("org_id", org.id);
+      }
+      await admin.from("organizations").delete().eq("id", org.id);
+      return json({ error: profErr.message }, 400);
+    }
+    await admin.from("org_payments").insert({
+      org_id: org.id, amount: Number(amount) || 0, method: method || null, reference: reference || null,
+      note: "New organization", plan_code: plan.code, extended_to: plan_expires_on || null, created_by: callerId,
+    });
+    await admin.from("platform_audit").insert({ admin_id: callerId, action: "create_org", org_id: org.id, detail: { plan: plan.code } });
+    return json({ status: "ok", org_id: org.id });
+  }
+
+  if (body.action === "sa_set_password") {
+    if (!isSuper) return json({ error: "Superadmin only" }, 403);
+    const { user_id, new_password } = body;
+    if (!user_id || !strong(new_password)) return json({ error: "user_id and a password of 8+ characters are required" }, 400);
+    const { error: pwErr } = await admin.auth.admin.updateUserById(user_id, { password: new_password });
+    if (pwErr) return json({ error: pwErr.message }, 400);
+    await admin.from("platform_audit").insert({ admin_id: callerId, action: "set_password", detail: { user_id } });
+    return json({ status: "ok" });
+  }
+
+  if (body.action === "sa_set_user_active") {
+    if (!isSuper) return json({ error: "Superadmin only" }, 403);
+    const { user_id, is_active } = body;
+    if (!user_id) return json({ error: "user_id required" }, 400);
+    const { error: upErr } = await admin.from("app_users").update({ is_active: !!is_active }).eq("id", user_id);
+    if (upErr) return json({ error: upErr.message }, 400);
+    await admin.from("platform_audit").insert({ admin_id: callerId, action: "set_user_active", detail: { user_id, is_active: !!is_active } });
+    return json({ status: "ok" });
+  }
+
+  if (body.action === "sa_create_user") {
+    if (!isSuper) return json({ error: "Superadmin only" }, 403);
+    if (!body.org_id) return json({ error: "org_id required" }, 400);
+    return await makeUser(body.org_id, body, false);
   }
 
   return json({ error: "Unknown action" }, 400);

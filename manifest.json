@@ -1,6 +1,6 @@
 {
-  "name": "OHT Accounting System",
-  "short_name": "OHT",
+  "name": "OHT Accounting System (PRO)",
+  "short_name": "OHT PRO",
   "description": "Parties, Billing, Daily Ledger, aur Reports — ek hi jagah.",
   "start_url": "./index.html",
   "scope": "./",

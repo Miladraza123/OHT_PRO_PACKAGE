@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>OHT Accounting System</title>
+<title>OHT Accounting System (PRO)</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
@@ -66,6 +66,18 @@
   .appbar .title{flex:1;}
   .appbar .status{font-size:11px; color:#B8AF9E; white-space:nowrap;}
   .appbar .status.offline{color:#D19A80;}
+
+  /* ---- organization banner (plan expiry / read-only / support mode) ---- */
+  #orgBanner{display:none; padding:8px 16px; font-size:13px; font-weight:600; flex:none; align-items:center; gap:12px; flex-wrap:wrap;}
+  #orgBanner.on{display:flex;}
+  #orgBanner.warn{background:#FBEFCF; color:#6B4E0B; border-bottom:1px solid #E8D49A;}
+  #orgBanner.bad{background:#F8DADA; color:#7A1F1F; border-bottom:1px solid #E5B4B4;}
+  #orgBanner.support{background:#DCEBFA; color:#134A7C; border-bottom:1px solid #B4D0EE;}
+  #orgBanner button{border:1px solid currentColor; background:transparent; color:inherit; border-radius:8px; padding:3px 10px; font:600 12px inherit; font-family:inherit; cursor:pointer;}
+  .shellbar h1{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  @media (max-width:860px){ #planChip{display:none !important;} .shellbar .abtn{padding-left:9px; padding-right:9px;} }
+  #planChip{font-size:11.5px; font-weight:600; color:var(--mute); background:var(--panel,#f5f0e8); border:1px solid var(--hair); border-radius:999px; padding:3px 10px; white-space:nowrap;}
+  #sidebar .orgname{font-size:11.5px; color:#B8AF9E; padding:0 14px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 
   /* ---- sign-in screen: untouched original design (scoped palette) ---- */
   #authScreen, #loading{
@@ -150,12 +162,13 @@
   <nav class="sidebar" id="sidebar">
     <div class="head">
       <span class="mark">OHT</span>
-      <span class="title">OHT Accounting System</span>
+      <span class="title">OHT Accounting System <b style="color:#DDB877">(PRO)</b></span>
       <button class="close" id="navClose" type="button" aria-label="Close menu">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
     </div>
 
+    <div class="orgname" id="orgName"></div>
     <div class="grp" id="navPrimary"></div>
 
     <hr class="sep">
@@ -168,6 +181,8 @@
     <div class="grp">
       <div class="grp-lbl">Account</div>
       <div id="navAccount"></div>
+      <button type="button" class="navitem" id="sideHelpBtn"><span>? Help &amp; Guide</span></button>
+      <button type="button" class="navitem" id="exitSupportBtn" style="display:none"><span>⏏ Exit support mode</span></button>
       <button type="button" class="navitem dgr" id="signOutBtn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
         <span>Sign out</span>
@@ -182,20 +197,23 @@
       <button class="hamburger" id="navOpen" type="button" aria-label="Open menu">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
-      <span class="title" id="appbarTitle">OHT Accounting System</span>
+      <span class="title" id="appbarTitle">OHT Accounting System (PRO)</span>
       <span class="status offline" id="failedStatusM" style="display:none"></span>
       <span class="status" id="netStatusM"></span>
     </div>
 
     <div class="shellbar">
-      <h1 id="shellTitle">OHT Accounting System</h1>
+      <h1 id="shellTitle">OHT Accounting System (PRO)</h1>
       <div class="grow"></div>
       <span class="status offline" id="failedStatus" style="display:none"></span>
       <span class="status" id="netStatus"></span>
+      <span id="planChip" style="display:none"></span>
+      <button class="abtn" id="helpBtn" title="Help &amp; guide">? Help</button>
       <button class="abtn" id="reloadBtn" title="Load the newest version of the app">⟳</button>
       <button class="abtn" id="installBtn" style="display:none">⭳ Install</button>
     </div>
 
+    <div id="orgBanner"></div>
     <div id="frames"></div>
   </div>
 </div>
@@ -210,6 +228,8 @@
 
 <div id="toastStack" class="toast-stack"></div>
 
+<script src="mt.js"></script>
+<script src="help.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 (function () {
@@ -292,7 +312,8 @@
     { key: 'masters', label: 'Masters', src: 'masters.html' },
     { key: 'billing', label: 'Billing', src: 'billing.html' },
     { key: 'ledger', label: 'Daily Ledger', src: 'daily-ledger.html' },
-    { key: 'reports', label: 'Reports', src: 'reports.html' }
+    { key: 'reports', label: 'Reports', src: 'reports.html' },
+    { key: 'superadmin', label: 'Organizations & Plans', src: 'superadmin.html' }
   ];
 
   // The sidebar's full nav tree — every leaf deep-links into a module via
@@ -351,7 +372,8 @@
     'Masters': '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
     'Sales & Billing': '<path d="M4 2v20l2.5-2 2.5 2 2.5-2 2.5 2 2.5-2 2.5 2V2l-2.5 2L14 2l-2.5 2L9 2 6.5 4z"/><path d="M8 8h8"/><path d="M8 12h6"/>',
     'Reports': '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/>',
-    'Daily Ledger': '<path d="M6 3h12a1 1 0 0 1 1 1v16l-3.5-2-3.5 2-3.5-2-3.5 2V4a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6M9 16h3"/>'
+    'Daily Ledger': '<path d="M6 3h12a1 1 0 0 1 1 1v16l-3.5-2-3.5 2-3.5-2-3.5 2V4a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+    'Organizations & Plans': '<path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/>'
   };
 
   function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
@@ -397,7 +419,7 @@
   var lastFailedCount = 0;
   function checkFailedQueue() {
     var failed;
-    try { failed = JSON.parse(localStorage.getItem('oht:offlineQueueFailed') || '[]'); } catch (e) { failed = []; }
+    try { failed = JSON.parse(localStorage.getItem('oht:offlineQueueFailed:' + (currentUserId || 'anon')) || '[]'); } catch (e) { failed = []; }
     [failedStatusEl, failedStatusMEl].forEach(function (el) {
       if (failed.length) {
         el.style.display = '';
@@ -420,9 +442,15 @@
       '<span>' + esc(it.label) + '</span></button>';
   }
 
+  var ctx = null;   // my_context(): role, org (plan, limits, expiry, writable), user
+  function isSuperNoOrg() { return !!(ctx && ctx.role === 'superadmin' && !ctx.support_org_id); }
+
   function buildSidebar() {
     var primaryHtml = '';
-    NAV.forEach(function (entry, gi) {
+    var navSet = isSuperNoOrg() ? [{ single: { app: 'superadmin', label: 'Organizations & Plans' } }] : NAV;
+    var toolsSet = isSuperNoOrg() ? [] : NAV_TOOLS;
+    var acctSet = isSuperNoOrg() ? NAV_ACCOUNT.filter(function (x) { return x.arg === 'changepw'; }) : NAV_ACCOUNT;
+    navSet.forEach(function (entry, gi) {
       if (entry.single) {
         primaryHtml += '<button type="button" class="navitem" data-app="' + entry.single.app + '">' +
           svgIco(GROUP_ICON[entry.single.label] || '') + '<span>' + esc(entry.single.label) + '</span></button>';
@@ -433,8 +461,9 @@
         '<div class="subgrp" data-gi="' + gi + '">' + entry.items.map(navItemHtml).join('') + '</div>';
     });
     document.getElementById('navPrimary').innerHTML = primaryHtml;
-    document.getElementById('navTools').innerHTML = NAV_TOOLS.map(navItemHtml).join('');
-    document.getElementById('navAccount').innerHTML = NAV_ACCOUNT.map(navItemHtml).join('');
+    document.getElementById('navTools').innerHTML = toolsSet.map(navItemHtml).join('');
+    document.getElementById('navAccount').innerHTML = acctSet.map(navItemHtml).join('');
+    document.getElementById('exitSupportBtn').style.display = (ctx && ctx.role === 'superadmin' && ctx.support_org_id) ? '' : 'none';
 
     document.getElementById('sidebar').addEventListener('click', function (e) {
       var cat = e.target.closest('.cat');
@@ -463,10 +492,11 @@
         }
       }
     }
+    if (app === 'superadmin') return 'Organizations & Plans';
     var flat = NAV_TOOLS.concat(NAV_ACCOUNT).filter(function (x) { return x.app === app && x.arg === arg; })[0];
     if (flat) return flat.label;
     var m = MODULES.filter(function (x) { return x.key === app; })[0];
-    return m ? m.label : 'OHT Accounting System';
+    return m ? m.label : 'OHT Accounting System (PRO)';
   }
 
   function updateSidebarActive(app, arg) {
@@ -563,7 +593,7 @@
     document.getElementById('appbarTitle').textContent = label;
     // A one-off action (Payments Due → Pay) must not replay on the next sign-in.
     var remember = !(typeof arg === 'string' && /^(pay|recv):/.test(arg));
-    try { if (currentUserId && remember) localStorage.setItem('oht:lastNav:' + currentUserId, JSON.stringify({ app: app, arg: arg || null })); } catch (e) {}
+    try { if (currentUserId && remember) localStorage.setItem('oht:lastNav:' + currentUserId + ':' + (ctx && ctx.support_org_id || ''), JSON.stringify({ app: app, arg: arg || null })); } catch (e) {}
   }
 
   function openModule(app, arg) {
@@ -594,6 +624,10 @@
     // Quotation → Delivery Challan → Sale) — keep the sidebar and title in step.
     if (d.oht === 'navigated') { if (MODULES.some(function (x) { return x.key === d.app; })) markNav(d.app, d.arg); return; }
     if (d.oht === 'installPrompt') { installBtn.click(); return; }
+    if (d.oht === 'supportEnter' && d.org_id) {
+      sb.rpc('sa_set_support', { p_org: d.org_id }).then(function (r) { if (r.error) toast(r.error.message, true); else location.reload(); });
+      return;
+    }
     if (d.oht === 'signOut') { document.getElementById('signOutBtn').click(); return; }
     if (d.oht === 'refresh' || d.oht === 'goto') {
       Object.keys(frames).forEach(function (k) {
@@ -622,30 +656,74 @@
     loadingEl.style.display = 'none';
     appShellEl.classList.add('on');
     buildSidebar();
-    var last = { app: 'masters', arg: 'parties' };
+    renderOrgInfo();
+    var last = isSuperNoOrg() ? { app: 'superadmin', arg: null } : { app: 'masters', arg: 'parties' };
     try {
-      var saved = JSON.parse(localStorage.getItem('oht:lastNav:' + currentUserId) || 'null');
-      if (saved && saved.app) last = saved;
+      var saved = JSON.parse(localStorage.getItem('oht:lastNav:' + currentUserId + ':' + (ctx && ctx.support_org_id || '')) || 'null');
+      if (saved && saved.app && (saved.app !== 'superadmin') === !isSuperNoOrg()) last = saved;
+      else if (saved && saved.app === 'masters' && saved.arg === 'changepw') last = saved;
     } catch (e) {}
     openModule(last.app, last.arg);
+    // first login of an owner / employee: show the guided tour once
+    if (ctx && (ctx.role === 'owner' || ctx.role === 'employee') && ctx.user && !ctx.user.tour_seen_at) {
+      setTimeout(function () { OHT_HELP.startTour(false); }, 700);
+    }
   }
+
+  // plan chip, organization name and the colored banner (expiring / expired / suspended / support mode)
+  function renderOrgInfo() {
+    var bn = document.getElementById('orgBanner'), chip = document.getElementById('planChip');
+    var org = ctx && ctx.org;
+    document.getElementById('orgName').textContent = org ? (org.name + ' · ' + org.plan_name + (org.plan_expires_on ? ' · till ' + org.plan_expires_on : '')) : (ctx && ctx.role === 'superadmin' ? 'Superadmin' : '');
+    bn.className = ''; bn.innerHTML = '';
+    if (ctx && ctx.role === 'superadmin' && ctx.support_org_id && org) {
+      bn.className = 'on support';
+      bn.innerHTML = '<span>🛟 Support mode — ' + esc(org.name) + ' (' + esc(org.plan_name) + '). Sirf dekh sakte hain, kuch badal nahi sakte.</span><button type="button" id="bnExit">Exit support mode</button>';
+      document.getElementById('bnExit').addEventListener('click', exitSupport);
+    } else if (org && !org.writable) {
+      bn.className = 'on bad';
+      bn.innerHTML = '<span>' + (org.status === 'suspended'
+        ? '⛔ Ye account suspend hai — sirf dekh sakte hain. OHT Solutions se rabta karein.'
+        : '⛔ Aap ka ' + esc(org.plan_name) + ' plan expire ho chuka hai (' + esc(org.plan_expires_on) + ') — app sirf-dekhne (read-only) mode mein hai. Naya data likhne ke liye plan renew karwayen.') + '</span>';
+    } else if (org && org.days_left != null && org.days_left <= 7) {
+      bn.className = 'on warn';
+      bn.innerHTML = '<span>⚠️ Aap ka ' + esc(org.plan_name) + ' plan ' + (org.days_left === 0 ? 'aaj' : org.days_left + ' din mein') + ' expire ho raha hai (' + esc(org.plan_expires_on) + '). Renew karwa lein, warna app read-only ho jayegi.</span>';
+    }
+    if (org) {
+      chip.style.display = '';
+      chip.textContent = org.plan_name + (org.plan_expires_on ? ' · till ' + org.plan_expires_on : ' · no expiry');
+    } else { chip.style.display = 'none'; }
+    document.getElementById('helpBtn').style.display = (ctx && ctx.role === 'superadmin' && !ctx.support_org_id) ? 'none' : '';
+    document.getElementById('sideHelpBtn').style.display = (ctx && ctx.role === 'superadmin' && !ctx.support_org_id) ? 'none' : '';
+  }
+
+  async function exitSupport() {
+    var r = await sb.rpc('sa_set_support', { p_org: null });
+    if (r.error) { toast(r.error.message, true); return; }
+    location.reload();
+  }
+  document.getElementById('exitSupportBtn').addEventListener('click', exitSupport);
+  document.getElementById('helpBtn').addEventListener('click', function () { OHT_HELP.open(); });
+  document.getElementById('sideHelpBtn').addEventListener('click', function () { setDrawer(false); OHT_HELP.open(); });
+  OHT_HELP.init({
+    getCtx: function () { return ctx; },
+    setDrawer: function (o) { setDrawer(o); },
+    onTourDone: function (manual) { if (!manual) { sb.rpc('mark_tour_seen').then(function () {}); if (ctx && ctx.user) ctx.user.tour_seen_at = new Date().toISOString(); } }
+  });
 
   async function checkProfileAndEnter() {
     var { data: userData } = await sb.auth.getUser();
     var user = userData && userData.user;
     if (!user) { showAuth(); return; }
-    var { data: profile, error } = await sb
-      .from('app_users')
-      .select('id, username, is_active, is_admin')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (error) { showAuth('Could not load your profile: ' + error.message); return; }
-    if (!profile) {
+    var cr = await sb.rpc('my_context');
+    if (cr.error) { showAuth('Could not load your profile: ' + cr.error.message); return; }
+    ctx = cr.data || { role: 'none' };
+    if (ctx.role === 'none') {
       await sb.auth.signOut();
       showAuth('Your account is not set up yet — contact your admin.');
       return;
     }
-    if (!profile.is_active) {
+    if (ctx.role !== 'superadmin' && ctx.user && !ctx.user.is_active) {
       await sb.auth.signOut();
       showAuth('Your access has been disabled — contact your admin.');
       return;
@@ -670,7 +748,7 @@
 
   document.getElementById('signOutBtn').addEventListener('click', async function () {
     var ok = await confirmDialog(
-      'Sign out of OHT Accounting System?',
+      'Sign out of OHT Accounting System (PRO)?',
       'Every open module closes and you are returned to the sign-in screen. Anything still waiting to sync stays queued in this browser and syncs the next time you sign in on this device.',
       'Sign out', true
     );
@@ -685,6 +763,8 @@
     activeKey = null;
     currentUserId = null;
     currentUserEmail = null;
+    ctx = null;
+    document.getElementById('orgBanner').className = '';
     showAuth();
   });
 
@@ -760,7 +840,7 @@
     updatePromptShown = true;
     confirmDialog(
       'New version available',
-      'An updated version of OHT Accounting System is ready. Refresh to start using it — anything still syncing in the background is not affected.',
+      'An updated version of OHT Accounting System (PRO) is ready. Refresh to start using it — anything still syncing in the background is not affected.',
       'Refresh', false
     ).then(function (ok) {
       updatePromptShown = false;

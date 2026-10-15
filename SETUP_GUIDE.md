@@ -120,3 +120,23 @@ need to restore from an encrypted nightly backup).
 - There is no hard block on selling more than what's in stock (§9/§12)
   — this is intentional, matching how many trading businesses actually
   operate (selling ahead of a physical count).
+
+## 7. OHT Accounting System (PRO) — multi-tenant model
+
+Every customer ("owner") is an **organization** with its own data. Nobody can see another organization's rows —
+this is enforced by the database (restrictive row-level-security on every table, migrations `0058`–`0063`), not by the app.
+
+* **Superadmin** (`platform_admins` table) signs in to the same app and sees only the *Organizations & Plans* panel:
+  create an organization + its owner login, sell/renew a plan (manual payment is logged), suspend, reset passwords,
+  edit plan limits. Owners can **only** be created here (edge function `admin-user-ops`, action `create_org`).
+* **Support mode:** superadmin presses *Support mode* on an organization to look at its data (read-only, every
+  enter/exit is written to `platform_audit`). Nothing can be changed in support mode.
+* **Plans:** Basic 2 users / 1 firm / 1 warehouse, Standard 5/2/3, Pro 15/5/10 (editable in the panel). Limits are
+  enforced by database triggers. When `plan_expires_on` passes (or the organization is suspended) the organization
+  becomes **read-only**: everything can be viewed and printed, nothing can be added or changed, until the plan is renewed.
+* **Owner / employees:** the owner creates employees (email + password + permissions) from *Manage Users*; employees
+  only see their owner's organization and can change their own password.
+* **Make the first superadmin** (SQL editor): `insert into platform_admins(user_id) select id from auth.users where email='you@example.com';`
+  (the account should not belong to any organization: `update app_users set org_id=null, is_active=false where id=…`).
+* **Nightly backup job:** `BACKUP_EMAIL` must be the *owner login of the organization being backed up* — a login only
+  sees its own organization (the job stops with a clear message if it is a superadmin login).

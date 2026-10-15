@@ -5,10 +5,10 @@
 // queue, never the service-worker cache.
 'use strict';
 
-const CACHE_NAME = 'tae-shell-v8';
+const CACHE_NAME = 'tae-shell-v9';
 const PRECACHE_URLS = [
-  './index.html', './masters.html', './billing.html', './daily-ledger.html', './reports.html',
-  './logo-trim.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'
+  './index.html', './masters.html', './billing.html', './daily-ledger.html', './reports.html', './superadmin.html',
+  './mt.js', './help.js', './offline-queue.js', './logo-trim.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {

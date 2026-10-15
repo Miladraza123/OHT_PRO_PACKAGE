@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Superadmin — OHT Accounting System (PRO)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
+<style>
+  html,body{height:100%;}
+  body{display:flex;flex-direction:column;background:var(--desk);}
+  main{flex:1;overflow-y:auto;padding:16px;}
+  .wrap{max-width:1100px;margin:0 auto;}
+  .sa-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+  .sa-tab{padding:8px 14px;border-radius:999px;border:1px solid var(--hair);background:var(--paper);color:var(--ink);font:600 13px inherit;font-family:inherit;cursor:pointer;}
+  .sa-tab.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px;}
+  .kpi{background:var(--paper);border:1px solid var(--hair);border-radius:12px;padding:12px 14px;}
+  .kpi b{display:block;font-size:22px;}
+  .kpi span{font-size:12px;color:var(--mute);}
+  .bar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;}
+  .bar input[type=search]{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--line,#CBD2D9);border-radius:10px;font:inherit;background:var(--paper);color:var(--ink);}
+  .card{background:var(--paper);border:1px solid var(--hair);border-radius:14px;overflow:hidden;}
+  table.t{width:100%;border-collapse:collapse;font-size:13px;}
+  table.t th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);padding:10px 12px;border-bottom:1px solid var(--hair);background:var(--panel,#f5f0e8);}
+  table.t td{padding:10px 12px;border-bottom:1px solid var(--hair);vertical-align:middle;}
+  table.t tr:last-child td{border-bottom:0;}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;}
+  .pill.ok{background:#DDF1E7;color:#14614A;} .pill.wn{background:#FBEFCF;color:#8A6410;}
+  .pill.er{background:#F8DADA;color:#9B2C2C;} .pill.n{background:#E9ECEF;color:#3E4C59;}
+  .sub{color:var(--mute);font-size:12px;}
+  .row-acts{display:flex;gap:6px;flex-wrap:wrap;}
+  .btn.sm{padding:5px 10px;font-size:12px;}
+  .modal{position:fixed;inset:0;background:rgba(20,24,31,.55);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;z-index:50;}
+  .modal .box{background:var(--paper);border-radius:16px;max-width:640px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+  .modal h3{margin:0 0 12px;font-size:17px;}
+  .modal h4{margin:18px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  @media (max-width:560px){.grid2{grid-template-columns:1fr;}}
+  .fld label{display:block;font-size:12px;font-weight:600;margin-bottom:4px;}
+  .fld input,.fld select,.fld textarea{width:100%;padding:9px 11px;border:1px solid var(--line,#CBD2D9);border-radius:9px;font:inherit;background:var(--paper);color:var(--ink);box-sizing:border-box;}
+  .err{color:var(--debit,#9B2C2C);font-size:13px;min-height:18px;margin-top:8px;white-space:pre-line;}
+  .quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+  .empty{padding:28px;text-align:center;color:var(--mute);}
+  @media (max-width:760px){ table.t th:nth-child(n+4), table.t td:nth-child(n+4){display:none;} }
+</style>
+</head>
+<body>
+<main id="main"><div class="wrap">
+  <div class="kpis" id="kpis"></div>
+  <div class="sa-tabs" id="tabs"></div>
+  <div id="view"><div class="empty">Loading…</div></div>
+</div></main>
+<div id="modalHost"></div>
+<div id="toastStack" class="toast-stack"></div>
+
+<script src="mt.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var SUPABASE_URL = 'https://zvzxoxbrwzjgevvkjaiu.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2enhveGJyd3pqZ2V2dmtqYWl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2NTYxMzQsImV4cCI6MjEwNTIzMjEzNH0.hyK-JevmCcK9D4iUbCC95ixVukGS1NPy_0pkbY1AXMk';
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: false } });
+  sb.auth.onAuthStateChange(function (event) {
+    if (event === 'SIGNED_OUT') { try { window.parent.postMessage({ oht: 'authLost' }, '*'); } catch (e) {} }
+  });
+  window.addEventListener('message', function (ev) {
+    var d = ev.data;
+    if (d && d.oht === 'active') { d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh(); }
+  });
+
+  function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function $(id) { return document.getElementById(id); }
+  function toast(message, isError) {
+    var stack = $('toastStack');
+    while (stack.children.length >= 3) stack.removeChild(stack.firstChild);
+    var el = document.createElement('div'); el.className = 'toast' + (isError ? ' err' : ''); el.textContent = message;
+    stack.appendChild(el); requestAnimationFrame(function () { el.classList.add('on'); });
+    setTimeout(function () { el.classList.remove('on'); setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 240); }, isError ? 5200 : 3200);
+  }
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function addDays(iso, n) { var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function fmtMoney(n) { return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+
+  async function fnErrorText(data, error) {
+    if (data && data.error) return data.error;
+    if (!error) return '';
+    var body = null;
+    try { if (error.context && typeof error.context.json === 'function') body = await error.context.json(); } catch (e) {}
+    return (body && (body.error || body.message)) || error.message;
+  }
+  async function callFn(body) {
+    var r = await sb.functions.invoke('admin-user-ops', { body: body });
+    var msg = await fnErrorText(r.data, r.error);
+    return msg ? { error: msg } : { data: r.data };
+  }
+
+  var orgs = [], plans = [], tab = 'orgs', search = '';
+
+  function statusPill(o) {
+    if (o.status === 'suspended') return '<span class="pill er">Suspended</span>';
+    if (o.expired) return '<span class="pill er">Expired</span>';
+    if (o.days_left != null && o.days_left <= 7) return '<span class="pill wn">Expires in ' + o.days_left + 'd</span>';
+    return '<span class="pill ok">Active</span>';
+  }
+  function expiryText(o) {
+    if (!o.plan_expires_on) return 'No expiry';
+    return o.plan_expires_on + (o.days_left != null ? ' (' + (o.days_left >= 0 ? o.days_left + ' days left' : -o.days_left + ' days ago') + ')' : '');
+  }
+
+  async function loadAll() {
+    var r1 = await sb.rpc('sa_list_orgs');
+    if (r1.error) { $('view').innerHTML = '<div class="empty">' + esc(r1.error.message) + '</div>'; return false; }
+    orgs = r1.data || [];
+    var r2 = await sb.from('plans').select('*').order('sort_order');
+    plans = r2.data || [];
+    return true;
+  }
+
+  function renderKpis() {
+    var active = orgs.filter(function (o) { return o.writable; }).length;
+    var expired = orgs.filter(function (o) { return o.expired; }).length;
+    var soon = orgs.filter(function (o) { return !o.expired && o.status === 'active' && o.days_left != null && o.days_left <= 7; }).length;
+    var users = orgs.reduce(function (a, o) { return a + ((o.usage && o.usage.users) || 0); }, 0);
+    $('kpis').innerHTML =
+      '<div class="kpi"><b>' + orgs.length + '</b><span>Organizations</span></div>' +
+      '<div class="kpi"><b>' + active + '</b><span>Active (can write)</span></div>' +
+      '<div class="kpi"><b>' + expired + '</b><span>Expired / read-only</span></div>' +
+      '<div class="kpi"><b>' + soon + '</b><span>Expiring within 7 days</span></div>' +
+      '<div class="kpi"><b>' + users + '</b><span>Active users (all orgs)</span></div>';
+  }
+
+  function renderTabs() {
+    var T = [['orgs', 'Organizations'], ['plans', 'Plans'], ['pay', 'Payments'], ['log', 'Activity']];
+    $('tabs').innerHTML = T.map(function (t) { return '<button type="button" class="sa-tab' + (tab === t[0] ? ' on' : '') + '" data-t="' + t[0] + '">' + t[1] + '</button>'; }).join('');
+    Array.prototype.forEach.call($('tabs').querySelectorAll('.sa-tab'), function (b) {
+      b.addEventListener('click', function () { tab = b.dataset.t; renderTabs(); renderView(); });
+    });
+  }
+
+  function renderView() {
+    if (tab === 'orgs') return viewOrgs();
+    if (tab === 'plans') return viewPlans();
+    if (tab === 'pay') return viewPayments();
+    return viewLog();
+  }
+
+  // ---------------- organizations ----------------
+  function viewOrgs() {
+    var v = $('view');
+    v.innerHTML = '<div class="bar"><input type="search" id="q" placeholder="Search organization or owner…" value="' + esc(search) + '"><button type="button" class="btn pri" id="newOrg">+ New organization</button></div>' +
+      '<div class="card" id="orgList"></div>';
+    $('q').addEventListener('input', function () { search = this.value; paintOrgs(); });
+    $('newOrg').addEventListener('click', openNewOrg);
+    paintOrgs();
+  }
+  function paintOrgs() {
+    var term = search.toLowerCase();
+    var list = orgs.filter(function (o) { return !term || (o.name + ' ' + (o.owner_name || '') + ' ' + (o.owner_email || '')).toLowerCase().indexOf(term) >= 0; });
+    if (!list.length) { $('orgList').innerHTML = '<div class="empty">No organizations yet. Click “+ New organization” to sell a plan.</div>'; return; }
+    $('orgList').innerHTML = '<table class="t"><thead><tr><th>Organization</th><th>Plan</th><th>Status</th><th>Users</th><th>Firms</th><th>Warehouses</th><th>Plan ends</th><th></th></tr></thead><tbody>' +
+      list.map(function (o) {
+        var u = o.usage || {};
+        return '<tr><td><b>' + esc(o.name) + '</b><div class="sub">' + esc(o.owner_name || '') + (o.owner_email ? ' · ' + esc(o.owner_email) : '') + '</div></td>' +
+          '<td>' + esc(o.plan_name) + '</td><td>' + statusPill(o) + '</td>' +
+          '<td>' + u.users + ' / ' + o.max_users + '</td><td>' + u.firms + ' / ' + o.max_firms + '</td><td>' + u.warehouses + ' / ' + o.max_warehouses + '</td>' +
+          '<td>' + esc(expiryText(o)) + '</td>' +
+          '<td><div class="row-acts"><button type="button" class="btn sm pri" data-a="plan" data-id="' + o.id + '">Plan / Renew</button>' +
+          '<button type="button" class="btn sm" data-a="manage" data-id="' + o.id + '">Manage</button>' +
+          '<button type="button" class="btn sm" data-a="support" data-id="' + o.id + '">Support mode</button></div></td></tr>';
+      }).join('') + '</tbody></table>';
+    Array.prototype.forEach.call($('orgList').querySelectorAll('button[data-a]'), function (b) {
+      b.addEventListener('click', function () {
+        var o = orgs.filter(function (x) { return x.id === b.dataset.id; })[0];
+        if (b.dataset.a === 'plan') openPlan(o);
+        else if (b.dataset.a === 'manage') openManage(o);
+        else window.parent.postMessage({ oht: 'supportEnter', org_id: o.id }, '*');
+      });
+    });
+  }
+
+  // ---------------- modal helper ----------------
+  function modal(title, html) {
+    var host = $('modalHost');
+    host.innerHTML = '<div class="modal"><div class="box"><h3>' + esc(title) + '</h3>' + html + '</div></div>';
+    host.querySelector('.modal').addEventListener('mousedown', function (e) { if (e.target === this) closeModal(); });
+    return host;
+  }
+  function closeModal() { $('modalHost').innerHTML = ''; }
+  function planOptions(sel) {
+    return plans.map(function (p) { return '<option value="' + p.code + '"' + (p.code === sel ? ' selected' : '') + '>' + esc(p.name) + ' — ' + p.max_users + ' users / ' + p.max_firms + ' firms / ' + p.max_warehouses + ' warehouses</option>'; }).join('');
+  }
+  var METHODS = ['Cash', 'Bank transfer', 'JazzCash', 'Easypaisa', 'Cheque', 'Other'];
+  function methodOptions() { return METHODS.map(function (m) { return '<option>' + m + '</option>'; }).join(''); }
+
+  // ---------------- new organization ----------------
+  function openNewOrg() {
+    modal('New organization (sell a plan)',
+      '<div class="grid2">' +
+      '<div class="fld"><label>Business name *</label><input id="n_name"></div>' +
+      '<div class="fld"><label>Owner name</label><input id="n_owner"></div>' +
+      '<div class="fld"><label>Owner phone</label><input id="n_phone"></div>' +
+      '<div class="fld"><label>Owner login email *</label><input id="n_email" type="email" autocomplete="off"></div>' +
+      '<div class="fld"><label>Owner password * (min 8, not a common password)</label><input id="n_pw" type="text" autocomplete="off"></div>' +
+      '<div class="fld"><label>Plan</label><select id="n_plan">' + planOptions('basic') + '</select></div>' +
+      '<div class="fld"><label>Plan ends on</label><input id="n_exp" type="date" value="' + addDays(today(), 30) + '"></div>' +
+      '<div class="fld"><label>Amount received (Rs)</label><input id="n_amt" type="number" min="0" value="0"></div>' +
+      '<div class="fld"><label>Payment method</label><select id="n_method">' + methodOptions() + '</select></div>' +
+      '<div class="fld"><label>Reference / receipt no.</label><input id="n_ref"></div></div>' +
+      '<div class="quick"><button type="button" class="btn sm" data-d="30">+30 days</button><button type="button" class="btn sm" data-d="90">+90 days</button><button type="button" class="btn sm" data-d="365">+1 year</button><button type="button" class="btn sm" id="n_noexp">No expiry</button></div>' +
+      '<div class="fld" style="margin-top:10px"><label>Notes</label><textarea id="n_notes" rows="2"></textarea></div>' +
+      '<div class="err" id="n_err"></div>' +
+      '<div class="row-acts" style="margin-top:12px;justify-content:flex-end"><button type="button" class="btn" id="n_cancel">Cancel</button><button type="button" class="btn pri" id="n_save">Create organization</button></div>');
+    Array.prototype.forEach.call(document.querySelectorAll('.quick [data-d]'), function (b) {
+      b.addEventListener('click', function () { $('n_exp').value = addDays(today(), Number(b.dataset.d)); });
+    });
+    $('n_noexp').addEventListener('click', function () { $('n_exp').value = ''; });
+    $('n_cancel').addEventListener('click', closeModal);
+    $('n_save').addEventListener('click', async function () {
+      var btn = this; $('n_err').textContent = '';
+      var body = {
+        action: 'create_org', org_name: $('n_name').value.trim(), owner_name: $('n_owner').value.trim(), owner_phone: $('n_phone').value.trim(),
+        owner_email: $('n_email').value.trim(), owner_password: $('n_pw').value, plan_code: $('n_plan').value,
+        plan_expires_on: $('n_exp').value || null, amount: Number($('n_amt').value) || 0, method: $('n_method').value,
+        reference: $('n_ref').value.trim(), notes: $('n_notes').value.trim()
+      };
+      if (!body.org_name || !body.owner_email || !body.owner_password) { $('n_err').textContent = 'Business name, owner email and owner password are required.'; return; }
+      if (body.owner_password.length < 8) { $('n_err').textContent = 'Password must be at least 8 characters.'; return; }
+      btn.disabled = true; btn.textContent = 'Creating…';
+      var r = await callFn(body);
+      btn.disabled = false; btn.textContent = 'Create organization';
+      if (r.error) { $('n_err').textContent = r.error; return; }
+      closeModal(); toast('Organization created. Give the owner the email + password.');
+      await refresh();
+    });
+  }
+
+  // ---------------- plan / renew ----------------
+  function openPlan(o) {
+    var base = o.plan_expires_on && o.plan_expires_on >= today() ? o.plan_expires_on : today();
+    modal('Plan / Renew — ' + o.name,
+      '<p class="sub">Now: <b>' + esc(o.plan_name) + '</b> · ' + esc(expiryText(o)) + '</p>' +
+      '<div class="grid2"><div class="fld"><label>Plan</label><select id="p_plan">' + planOptions(o.plan_code) + '</select></div>' +
+      '<div class="fld"><label>Plan ends on</label><input id="p_exp" type="date" value="' + addDays(base, 30) + '"></div>' +
+      '<div class="fld"><label>Amount received (Rs)</label><input id="p_amt" type="number" min="0" value="0"></div>' +
+      '<div class="fld"><label>Payment method</label><select id="p_method">' + methodOptions() + '</select></div>' +
+      '<div class="fld"><label>Reference / receipt no.</label><input id="p_ref"></div>' +
+      '<div class="fld"><label>Note</label><input id="p_note"></div></div>' +
+      '<div class="quick"><button type="button" class="btn sm" data-d="30">Base +30 days</button><button type="button" class="btn sm" data-d="90">Base +90 days</button><button type="button" class="btn sm" data-d="365">Base +1 year</button><button type="button" class="btn sm" id="p_noexp">No expiry</button></div>' +
+      '<p class="sub">“Base” = the current end date (or today if already expired). Saving re-activates a suspended or expired account.</p>' +
+      '<div class="err" id="p_err"></div>' +
+      '<div class="row-acts" style="margin-top:12px;justify-content:flex-end"><button type="button" class="btn" id="p_cancel">Cancel</button><button type="button" class="btn pri" id="p_save">Save plan</button></div>');
+    Array.prototype.forEach.call(document.querySelectorAll('.quick [data-d]'), function (b) {
+      b.addEventListener('click', function () { $('p_exp').value = addDays(base, Number(b.dataset.d)); });
+    });
+    $('p_noexp').addEventListener('click', function () { $('p_exp').value = ''; });
+    $('p_cancel').addEventListener('click', closeModal);
+    $('p_save').addEventListener('click', async function () {
+      $('p_err').textContent = '';
+      var r = await sb.rpc('sa_set_plan', { p_org: o.id, p_plan_code: $('p_plan').value, p_expires_on: $('p_exp').value || null,
+        p_amount: Number($('p_amt').value) || 0, p_method: $('p_method').value, p_reference: $('p_ref').value.trim() || null, p_note: $('p_note').value.trim() || null });
+      if (r.error) { $('p_err').textContent = r.error.message; return; }
+      closeModal(); toast('Plan saved.'); await refresh();
+    });
+  }
+
+  // ---------------- manage (details + users) ----------------
+  async function openManage(o) {
+    var ur = await sb.rpc('sa_org_users', { p_org: o.id });
+    var users = ur.data || [];
+    modal('Manage — ' + o.name,
+      '<h4>Details</h4><div class="grid2">' +
+      '<div class="fld"><label>Business name</label><input id="m_name" value="' + esc(o.name) + '"></div>' +
+      '<div class="fld"><label>Owner name</label><input id="m_owner" value="' + esc(o.owner_name || '') + '"></div>' +
+      '<div class="fld"><label>Owner phone</label><input id="m_phone" value="' + esc(o.owner_phone || '') + '"></div>' +
+      '<div class="fld"><label>Owner email (info)</label><input id="m_email" value="' + esc(o.owner_email || '') + '"></div>' +
+      '<div class="fld"><label>Account status</label><select id="m_status"><option value="active"' + (o.status === 'active' ? ' selected' : '') + '>Active</option><option value="suspended"' + (o.status === 'suspended' ? ' selected' : '') + '>Suspended (read-only)</option></select></div>' +
+      '<div class="fld"><label>Notes</label><input id="m_notes" value="' + esc(o.notes || '') + '"></div></div>' +
+      '<div class="err" id="m_err"></div>' +
+      '<div class="row-acts" style="margin-top:8px"><button type="button" class="btn pri" id="m_save">Save details</button></div>' +
+      '<h4>Users (' + users.filter(function (u) { return u.is_active; }).length + ' active / limit ' + o.max_users + ')</h4>' +
+      '<div class="card"><table class="t"><tbody>' + users.map(function (u) {
+        return '<tr><td><b>' + esc(u.username) + '</b>' + (u.is_owner ? ' <span class="pill n">Owner</span>' : (u.is_admin ? ' <span class="pill n">Admin</span>' : '')) + '<div class="sub">' + esc(u.email) + '</div></td>' +
+          '<td>' + (u.is_active ? '<span class="pill ok">Active</span>' : '<span class="pill er">Disabled</span>') + '</td>' +
+          '<td><div class="row-acts"><button type="button" class="btn sm" data-pw="' + u.id + '">Set password</button>' +
+          '<button type="button" class="btn sm" data-act="' + u.id + '" data-to="' + (u.is_active ? '0' : '1') + '">' + (u.is_active ? 'Disable' : 'Enable') + '</button></div></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<h4>Payments</h4><div id="m_pay" class="sub">Loading…</div>' +
+      '<div class="row-acts" style="margin-top:14px;justify-content:flex-end"><button type="button" class="btn" id="m_close">Close</button></div>');
+    $('m_close').addEventListener('click', closeModal);
+    $('m_save').addEventListener('click', async function () {
+      var r = await sb.rpc('sa_update_org', { p_org: o.id, p_name: $('m_name').value, p_owner_name: $('m_owner').value, p_owner_phone: $('m_phone').value,
+        p_owner_email: $('m_email').value, p_notes: $('m_notes').value, p_status: $('m_status').value });
+      if (r.error) { $('m_err').textContent = r.error.message; return; }
+      toast('Saved.'); closeModal(); await refresh();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-pw]'), function (b) {
+      b.addEventListener('click', async function () {
+        var pw = window.prompt('New password for this user (min 8 characters, not a common password):');
+        if (!pw) return;
+        var r = await callFn({ action: 'sa_set_password', user_id: b.dataset.pw, new_password: pw });
+        if (r.error) { toast(r.error, true); return; }
+        toast('Password updated.');
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-act]'), function (b) {
+      b.addEventListener('click', async function () {
+        var r = await callFn({ action: 'sa_set_user_active', user_id: b.dataset.act, is_active: b.dataset.to === '1' });
+        if (r.error) { toast(r.error, true); return; }
+        toast('Done.'); closeModal(); await refresh(); openManage(orgs.filter(function (x) { return x.id === o.id; })[0] || o);
+      });
+    });
+    var pr = await sb.from('org_payments').select('*').eq('org_id', o.id).order('created_at', { ascending: false }).limit(20);
+    $('m_pay').innerHTML = (pr.data && pr.data.length) ? pr.data.map(function (p) {
+      return esc(p.paid_on) + ' — Rs ' + fmtMoney(p.amount) + ' · ' + esc(p.plan_code || '') + ' · till ' + esc(p.extended_to || 'no expiry') + (p.method ? ' · ' + esc(p.method) : '') + (p.reference ? ' · ' + esc(p.reference) : '');
+    }).join('<br>') : 'No payments recorded.';
+  }
+
+  // ---------------- plans ----------------
+  function viewPlans() {
+    $('view').innerHTML = '<div class="card"><table class="t"><thead><tr><th>Plan</th><th>Users</th><th>Firms</th><th>Warehouses</th><th>Price (Rs)</th><th></th></tr></thead><tbody>' +
+      plans.map(function (p) {
+        return '<tr data-code="' + p.code + '"><td><input class="pn" value="' + esc(p.name) + '" style="width:110px"></td>' +
+          '<td><input class="pu" type="number" min="1" value="' + p.max_users + '" style="width:70px"></td>' +
+          '<td><input class="pf" type="number" min="1" value="' + p.max_firms + '" style="width:70px"></td>' +
+          '<td><input class="pw" type="number" min="1" value="' + p.max_warehouses + '" style="width:70px"></td>' +
+          '<td><input class="pp" type="number" min="0" value="' + p.price_pkr + '" style="width:100px"></td>' +
+          '<td><button type="button" class="btn sm pri">Save</button></td></tr>';
+      }).join('') + '</tbody></table></div><p class="sub" style="margin-top:8px">Changing a limit applies to every organization on that plan at once (an organization already above a new lower limit keeps what it has but cannot add more).</p>';
+    Array.prototype.forEach.call($('view').querySelectorAll('tr[data-code]'), function (tr) {
+      tr.querySelector('button').addEventListener('click', async function () {
+        var r = await sb.rpc('sa_update_plan', { p_code: tr.dataset.code, p_name: tr.querySelector('.pn').value, p_max_users: Number(tr.querySelector('.pu').value),
+          p_max_firms: Number(tr.querySelector('.pf').value), p_max_warehouses: Number(tr.querySelector('.pw').value), p_price: Number(tr.querySelector('.pp').value) });
+        if (r.error) { toast(r.error.message, true); return; }
+        toast('Plan saved.'); await refresh();
+      });
+    });
+  }
+
+  // ---------------- payments / activity ----------------
+  async function viewPayments() {
+    $('view').innerHTML = '<div class="empty">Loading…</div>';
+    var r = await sb.from('org_payments').select('*').order('created_at', { ascending: false }).limit(300);
+    var names = {}; orgs.forEach(function (o) { names[o.id] = o.name; });
+    var rows = r.data || [];
+    var total = rows.reduce(function (a, p) { return a + Number(p.amount || 0); }, 0);
+    $('view').innerHTML = '<div class="kpis"><div class="kpi"><b>Rs ' + fmtMoney(total) + '</b><span>Total recorded (last ' + rows.length + ')</span></div></div>' +
+      '<div class="card">' + (rows.length ? '<table class="t"><thead><tr><th>Date</th><th>Organization</th><th>Amount</th><th>Plan</th><th>Till</th><th>Method</th><th>Reference</th></tr></thead><tbody>' +
+      rows.map(function (p) { return '<tr><td>' + esc(p.paid_on) + '</td><td>' + esc(names[p.org_id] || '') + '</td><td>Rs ' + fmtMoney(p.amount) + '</td><td>' + esc(p.plan_code || '') + '</td><td>' + esc(p.extended_to || 'no expiry') + '</td><td>' + esc(p.method || '') + '</td><td>' + esc(p.reference || '') + '</td></tr>'; }).join('') +
+      '</tbody></table>' : '<div class="empty">No payments yet.</div>') + '</div>';
+  }
+  async function viewLog() {
+    $('view').innerHTML = '<div class="empty">Loading…</div>';
+    var r = await sb.from('platform_audit').select('*').order('at', { ascending: false }).limit(150);
+    var names = {}; orgs.forEach(function (o) { names[o.id] = o.name; });
+    var rows = r.data || [];
+    $('view').innerHTML = '<div class="card">' + (rows.length ? '<table class="t"><thead><tr><th>When</th><th>Action</th><th>Organization</th><th>Detail</th></tr></thead><tbody>' +
+      rows.map(function (a) { return '<tr><td>' + esc(String(a.at).slice(0, 16).replace('T', ' ')) + '</td><td>' + esc(a.action) + '</td><td>' + esc(names[a.org_id] || '') + '</td><td class="sub">' + esc(a.detail ? JSON.stringify(a.detail) : '') + '</td></tr>'; }).join('') +
+      '</tbody></table>' : '<div class="empty">No activity yet.</div>') + '</div>';
+  }
+
+  async function refresh() {
+    if (await loadAll()) { renderKpis(); renderView(); }
+  }
+
+  (async function init() {
+    var u = await sb.auth.getUser();
+    if (!u.data || !u.data.user) { $('view').innerHTML = '<div class="empty">Please sign in from the main app.</div>'; return; }
+    renderTabs();
+    if (await loadAll()) { renderKpis(); renderView(); }
+  })();
+})();
+</script>
+</body>
+</html>

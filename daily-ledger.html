@@ -303,6 +303,10 @@
     body.pd-on .pd-sum { grid-template-columns:repeat(5, 1fr); }
   }
   #ledgerArea.dl-loading{opacity:.6; pointer-events:none;}
+  /* read-only account (plan expired / suspended / support mode): look, don't touch */
+  body.oht-ro #addRowBtn, body.oht-ro #newSheetBtn, body.oht-ro #deleteSheetBtn, body.oht-ro #saveBtn,
+  body.oht-ro #addRowsFt, body.oht-ro .rmRow, body.oht-ro #restoreBtn { display:none !important; }
+  body.oht-ro #ledgerArea input, body.oht-ro #ledgerArea textarea, body.oht-ro #ledgerArea select { pointer-events:none; }
 </style>
 </head>
 <body>
@@ -440,6 +444,7 @@
 
 <div id="printArea"></div>
 
+<script src="mt.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="offline-queue.js"></script>
 <script src="logo-trim.js"></script>
@@ -510,11 +515,11 @@
   // copy the server just handed back is older than those keystrokes.
   function markDirty() { state.dirty = true; state.editSeq++; }
 
-  var LOCAL_KEY_PREFIX = 'oht:sheet:';
+  var LOCAL_KEY_PREFIX = 'oht:sheet:' + OHT_MT.uid() + ':';
   // Marks "a first save for this day is already sitting in the offline
   // queue". Kept in localStorage, not just in memory, so a reload while
   // still offline does not queue the same new day a second time.
-  var NEWSHEET_FLAG_PREFIX = 'oht:sheetQueued:';
+  var NEWSHEET_FLAG_PREFIX = 'oht:sheetQueued:' + OHT_MT.uid() + ':';
   function newSheetQueued(d) {
     try { return localStorage.getItem(NEWSHEET_FLAG_PREFIX + d) === '1'; } catch (e) { return false; }
   }
@@ -2623,6 +2628,8 @@
       document.getElementById('ledgerArea').innerHTML = '<p class="loading">Please sign in from the main app.</p>';
       return;
     }
+    var P = await OHT_MT.load(sb);
+    if (P.readOnly) { document.body.classList.add('oht-ro'); state.autosavePaused = true; }
     await Promise.all([loadParties(), loadCompanies()]);
     await loadSheet(state.date);
     applyPrefill();
