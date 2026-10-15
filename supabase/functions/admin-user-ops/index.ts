@@ -16,7 +16,7 @@
 //         -> reset a password of someone in the SAME organization.
 //   * SUPERADMIN (platform_admins):
 //       create_org   { org_name, plan_code, plan_expires_on, owner_name, owner_phone,
-//                      owner_email, owner_password, notes, amount, method, reference }
+//                      owner_email, owner_password, backup_email, notes, amount, method, reference }
 //         -> a new organization + its owner login (owners are only ever created here).
 //       sa_set_password    { user_id, new_password }
 //       sa_set_user_active { user_id, is_active }
@@ -160,7 +160,7 @@ Deno.serve(async (req: Request) => {
   // ---------------- superadmin ----------------
   if (body.action === "create_org") {
     if (!isSuper) return json({ error: "Superadmin only" }, 403);
-    const { org_name, plan_code, plan_expires_on, owner_name, owner_phone, owner_email, owner_password, notes, amount, method, reference } = body;
+    const { org_name, plan_code, plan_expires_on, owner_name, owner_phone, owner_email, owner_password, notes, amount, method, reference, backup_email } = body;
     if (!org_name || !owner_email || !owner_password) {
       return json({ error: "Business name, owner login email and owner password are required" }, 400);
     }
@@ -185,6 +185,7 @@ Deno.serve(async (req: Request) => {
         owner_name: owner_name || null,
         owner_phone: owner_phone || null,
         owner_email: String(owner_email).trim(),
+        backup_email: backup_email ? String(backup_email).trim() : null,
         notes: notes || null,
         created_by: callerId,
       })

@@ -209,7 +209,8 @@
       '<div class="fld"><label>Plan ends on</label><input id="n_exp" type="date" value="' + addDays(today(), 30) + '"></div>' +
       '<div class="fld"><label>Amount received (Rs)</label><input id="n_amt" type="number" min="0" value="0"></div>' +
       '<div class="fld"><label>Payment method</label><select id="n_method">' + methodOptions() + '</select></div>' +
-      '<div class="fld"><label>Reference / receipt no.</label><input id="n_ref"></div></div>' +
+      '<div class="fld"><label>Reference / receipt no.</label><input id="n_ref"></div>' +
+      '<div class="fld"><label>Backup email (client ki asli email — roz ka backup yahan jayega)</label><input id="n_bk" type="email" placeholder="client@gmail.com"></div></div>' +
       '<div class="quick"><button type="button" class="btn sm" data-d="30">+30 days</button><button type="button" class="btn sm" data-d="90">+90 days</button><button type="button" class="btn sm" data-d="365">+1 year</button><button type="button" class="btn sm" id="n_noexp">No expiry</button></div>' +
       '<div class="fld" style="margin-top:10px"><label>Notes</label><textarea id="n_notes" rows="2"></textarea></div>' +
       '<div class="err" id="n_err"></div>' +
@@ -225,7 +226,7 @@
         action: 'create_org', org_name: $('n_name').value.trim(), owner_name: $('n_owner').value.trim(), owner_phone: $('n_phone').value.trim(),
         owner_email: $('n_email').value.trim(), owner_password: $('n_pw').value, plan_code: $('n_plan').value,
         plan_expires_on: $('n_exp').value || null, amount: Number($('n_amt').value) || 0, method: $('n_method').value,
-        reference: $('n_ref').value.trim(), notes: $('n_notes').value.trim()
+        reference: $('n_ref').value.trim(), backup_email: $('n_bk').value.trim(), notes: $('n_notes').value.trim()
       };
       if (!body.org_name || !body.owner_email || !body.owner_password) { $('n_err').textContent = 'Business name, owner email and owner password are required.'; return; }
       if (body.owner_password.length < 8) { $('n_err').textContent = 'Password must be at least 8 characters.'; return; }
@@ -278,7 +279,8 @@
       '<div class="fld"><label>Owner phone</label><input id="m_phone" value="' + esc(o.owner_phone || '') + '"></div>' +
       '<div class="fld"><label>Owner email (info)</label><input id="m_email" value="' + esc(o.owner_email || '') + '"></div>' +
       '<div class="fld"><label>Account status</label><select id="m_status"><option value="active"' + (o.status === 'active' ? ' selected' : '') + '>Active</option><option value="suspended"' + (o.status === 'suspended' ? ' selected' : '') + '>Suspended (read-only)</option></select></div>' +
-      '<div class="fld"><label>Notes</label><input id="m_notes" value="' + esc(o.notes || '') + '"></div></div>' +
+      '<div class="fld"><label>Notes</label><input id="m_notes" value="' + esc(o.notes || '') + '"></div>' +
+      '<div class="fld"><label>Backup email (roz ka backup is email par jata hai)</label><input id="m_bk" type="email" value="' + esc(o.backup_email || '') + '" placeholder="' + esc(o.owner_email || '') + '"></div></div>' +
       '<div class="err" id="m_err"></div>' +
       '<div class="row-acts" style="margin-top:8px"><button type="button" class="btn pri" id="m_save">Save details</button></div>' +
       '<h4>Users (' + users.filter(function (u) { return u.is_active; }).length + ' active / limit ' + o.max_users + ')</h4>' +
@@ -295,6 +297,8 @@
       var r = await sb.rpc('sa_update_org', { p_org: o.id, p_name: $('m_name').value, p_owner_name: $('m_owner').value, p_owner_phone: $('m_phone').value,
         p_owner_email: $('m_email').value, p_notes: $('m_notes').value, p_status: $('m_status').value });
       if (r.error) { $('m_err').textContent = r.error.message; return; }
+      var rb = await sb.rpc('sa_set_backup_email', { p_org: o.id, p_email: $('m_bk').value });
+      if (rb.error) { $('m_err').textContent = rb.error.message; return; }
       toast('Saved.'); closeModal(); await refresh();
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-pw]'), function (b) {

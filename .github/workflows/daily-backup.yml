@@ -43,6 +43,9 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Multi-client mode: when SUPABASE_SERVICE_ROLE_KEY is set, EVERY organization gets its own
+          # backup emailed to its own owner/backup email (BACKUP_EMAIL/BACKUP_PASSWORD are then not needed).
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           BACKUP_EMAIL: ${{ secrets.BACKUP_EMAIL }}
           BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}

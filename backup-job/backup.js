@@ -28,11 +28,13 @@ const TABLES = [
 
 const PAGE_SIZE = 1000;
 
-async function fetchAllRows(sb, table) {
+async function fetchAllRows(sb, table, orgId) {
   const rows = [];
   let from = 0;
   for (;;) {
-    const { data, error } = await sb.from(table).select('*').range(from, from + PAGE_SIZE - 1);
+    let query = sb.from(table).select('*');
+    if (orgId) query = query.eq('org_id', orgId);
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
     if (error) {
       // Postgres 42P01 (undefined_table) via PostgREST: table doesn't exist yet
       // in this database (e.g. a fresh project before every migration ran) —
@@ -81,7 +83,7 @@ function encryptJson(buffer, passphrase) {
   return Buffer.concat([salt, iv, authTag, encrypted]);
 }
 
-async function main() {
+async function mainSingle() {
   const {
     SUPABASE_URL, SUPABASE_ANON_KEY,
     BACKUP_EMAIL, BACKUP_PASSWORD,
@@ -207,7 +209,81 @@ async function main() {
   }
 }
 
-main().catch((e) => {
+// ---------------------------------------------------------------------------
+// Multi-tenant mode (SUPABASE_SERVICE_ROLE_KEY present): every organization gets
+// its OWN backup (its own rows only) emailed to ITS OWN owner / backup email.
+// A short summary goes to BACKUP_TO_EMAIL (the platform owner).
+// ---------------------------------------------------------------------------
+const slug = (s) => String(s || 'client').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'client';
+const emailOk = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e || '') && !/\.internal$/i.test(e);
+
+async function mainMulti() {
+  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GMAIL_USER, GMAIL_APP_PASSWORD, BACKUP_TO_EMAIL, BACKUP_DRY_RUN } = process.env;
+  const missing = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'GMAIL_USER', 'GMAIL_APP_PASSWORD'].filter((k) => !process.env[k]);
+  if (missing.length && !BACKUP_DRY_RUN) { console.error('Missing required secrets:', missing.join(', ')); process.exit(1); }
+  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+  const { data: orgs, error: orgErr } = await sb.from('organizations').select('id,name,owner_name,owner_email,backup_email,status').order('name');
+  if (orgErr) { console.error('Could not list organizations:', orgErr.message); process.exit(1); }
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const outDir = path.join(__dirname, 'out');
+  fs.mkdirSync(outDir, { recursive: true });
+  const transporter = BACKUP_DRY_RUN ? null : nodemailer.createTransport({ service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD } });
+  const report = [];
+
+  for (const org of orgs) {
+    const to = org.backup_email || org.owner_email;
+    const line = { name: org.name, to, status: 'ok', rows: 0 };
+    try {
+      const exported = {};
+      for (const table of TABLES) {
+        const { rows, missing: isMissing } = await fetchAllRows(sb, table, org.id);
+        if (isMissing) continue;
+        exported[table] = rows;
+        line.rows += rows.length;
+      }
+      const base = `OHT-${slug(org.name)}-${stamp}`;
+      const jsonBuf = Buffer.from(JSON.stringify({ exported_at: new Date().toISOString(), organization: org.name, tables: exported }));
+      const gzPath = path.join(outDir, `${base}-Restore.json.gz`);
+      fs.writeFileSync(gzPath, zlib.gzipSync(jsonBuf));
+      const wb = await buildWorkbook(exported);
+      const xlsxPath = path.join(outDir, `${base}.xlsx`);
+      await wb.xlsx.writeFile(xlsxPath);
+      if (!emailOk(to)) {
+        line.status = 'NOT SENT — no valid backup email (set one in Superadmin → Manage)';
+      } else if (BACKUP_DRY_RUN) {
+        line.status = 'dry-run (not sent)';
+      } else {
+        await transporter.sendMail({
+          from: GMAIL_USER, to,
+          subject: `${org.name} — daily backup (${stamp})`,
+          text: [`Assalam o Alaikum ${org.owner_name || ''},`, '',
+            `Ye aap ki company "${org.name}" ke data ka roz ka backup hai (${stamp}).`,
+            '• .xlsx file: Excel mein dekhne ke liye.',
+            '• .json.gz file: app mein Tools → Backup / Restore se data wapas laane ke liye.',
+            '', 'Is file ko mehfooz rakhein — is mein sirf aap ki company ka data hai.', '', 'OHT Accounting System (PRO)'].join('\n'),
+          attachments: [{ filename: path.basename(gzPath), path: gzPath }, { filename: path.basename(xlsxPath), path: xlsxPath }]
+        });
+      }
+    } catch (e) {
+      line.status = 'FAILED: ' + (e && e.message || e);
+    }
+    console.log(`${line.name}: ${line.status} (${line.rows} rows) -> ${line.to || '-'}`);
+    report.push(line);
+  }
+
+  const failed = report.filter((r) => /^FAILED/.test(r.status));
+  if (!BACKUP_DRY_RUN && BACKUP_TO_EMAIL) {
+    await transporter.sendMail({
+      from: GMAIL_USER, to: BACKUP_TO_EMAIL.split(',').map((x) => x.trim()).filter(Boolean).join(', '),
+      subject: `OHT PRO backups — ${stamp}${failed.length ? ' — ' + failed.length + ' FAILED' : ''}`,
+      text: report.map((r) => `${r.name}: ${r.status} (${r.rows} rows) -> ${r.to || '-'}`).join('\n') || 'No organizations.'
+    });
+  }
+  if (failed.length) process.exit(1);
+}
+
+(process.env.SUPABASE_SERVICE_ROLE_KEY ? mainMulti : mainSingle)().catch((e) => {
   console.error('Backup job crashed:', e);
   process.exit(1);
 });
