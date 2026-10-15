@@ -138,5 +138,7 @@ this is enforced by the database (restrictive row-level-security on every table,
   only see their owner's organization and can change their own password.
 * **Make the first superadmin** (SQL editor): `insert into platform_admins(user_id) select id from auth.users where email='you@example.com';`
   (the account should not belong to any organization: `update app_users set org_id=null, is_active=false where id=…`).
-* **Nightly backup job:** `BACKUP_EMAIL` must be the *owner login of the organization being backed up* — a login only
-  sees its own organization (the job stops with a clear message if it is a superadmin login).
+* **Nightly backup job:** add the GitHub secret `SUPABASE_SERVICE_ROLE_KEY` (Supabase → Settings → API → service_role). The job
+  then backs up **every organization separately** and emails each client's own backup (`.xlsx` + restorable `.json.gz`) to the
+  organization's *Backup email* (Superadmin → Manage; defaults to the owner email). `BACKUP_TO_EMAIL` receives a summary.
+  Without that secret the job falls back to the old single-login mode (`BACKUP_EMAIL` must then be an owner login).
