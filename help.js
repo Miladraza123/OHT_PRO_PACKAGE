@@ -25,7 +25,7 @@
     '.hp-btn{border:1px solid var(--line,#CBD2D9);background:var(--paper,#fff);color:var(--ink,#1F2933);border-radius:10px;padding:8px 14px;font:600 13px inherit;font-family:inherit;cursor:pointer;}' +
     '.hp-btn.pri{background:var(--accent,#A67C2E);border-color:var(--accent,#A67C2E);color:#fff;}' +
     '.tour-hl{position:relative;z-index:951 !important;outline:3px solid #D2823E;outline-offset:2px;border-radius:8px;box-shadow:0 0 0 6px rgba(210,130,62,.25);}' +
-    '.tour-dim{position:fixed;inset:0;background:rgba(20,24,31,.5);z-index:950;}' +
+    '.tour-dim{position:fixed;inset:0;background:rgba(20,24,31,.35);z-index:950;pointer-events:none;} /* never blocks the app: the user can click the highlighted menu while the tour is open */' +
     '.tour-card{position:fixed;z-index:960;background:var(--paper,#fff);color:var(--ink,#1F2933);border-radius:14px;padding:16px 18px;width:min(360px,calc(100vw - 24px));box-shadow:0 16px 48px rgba(0,0,0,.4);font-family:inherit;}' +
     '.tour-card h4{margin:0 0 6px;font-size:15px;} .tour-card p{margin:0 0 12px;font-size:13.5px;line-height:1.6;}' +
     '.tour-card .acts{display:flex;gap:8px;align-items:center;} .tour-card .acts .grow{flex:1;font-size:12px;color:var(--mute,#7B8794);}';
@@ -147,7 +147,8 @@
     clearHl();
     var target = null;
     if (s.sel) {
-      if (s.drawer) cfg.setDrawer(true); else cfg.setDrawer(false);
+      // the slide-out menu (and its dark backdrop) only exists on narrow screens; on a desktop the sidebar is always visible
+      cfg.setDrawer(!!s.drawer && window.innerWidth <= 860);
       target = document.querySelector(s.sel);
       if (target && target.offsetParent === null && !s.drawer) target = null;
     } else { cfg.setDrawer(false); }
@@ -183,6 +184,7 @@
     var p = document.getElementById('tourPrev'); if (p) p.addEventListener('click', function () { showStep(i - 1); });
     var sk = document.getElementById('tourSkip'); if (sk) sk.addEventListener('click', function () { endTour(true); });
   }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && tourEls) endTour(true); });
   function startTour(manual) { tourManual = !!manual; endTour(false); showStep(0); }
 
   window.OHT_HELP = {
