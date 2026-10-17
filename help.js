@@ -121,7 +121,7 @@
 
   // ---------------------------------------------------------------- Tour
   var STEPS = [
-    { title: 'Khush aamdeed!', text: 'OHT Accounting System (PRO) mein aap ka swagat hai. Ye chhota sa tour 1 minute mein dikhayega ke har cheez kahan hai.' },
+    { title: 'Khush aamdeed!', text: 'OHT Accounting System (PRO) mein khush aamdeed. Ye chhota sa tour 1 minute mein dikhayega ke har cheez kahan hai.' },
     { sel: '#sidebar .cat[data-gi="0"]', drawer: true, title: 'Masters — pehla qadam', text: 'Sab se pehle yahan se Parties (customers/suppliers), Items, Services, Firms aur Warehouses banayen. Inhi ko bills mein istemal kiya jata hai.' },
     { sel: '#sidebar .cat[data-gi="1"]', drawer: true, title: 'Sales & Billing', text: 'Sale, Purchase, Quotation, Delivery Challan, Purchase Order, Service Invoice, Sales Return, Stock Transfer aur Stock Adjustment — sab bills yahan se. Har bill print bhi hota hai.' },
     { sel: '#sidebar .navitem[data-app="ledger"]', drawer: true, title: 'Daily Ledger', text: 'Roz ka cash book: kis se kitna paisa aaya aur kis ko gaya. Party link karne se uska hisaab khud update hota hai.' },
