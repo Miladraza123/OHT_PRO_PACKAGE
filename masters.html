@@ -644,6 +644,43 @@
   // Party Kinds). The data-loading, merge-save and delete logic below is
   // unchanged — only the markup around it moved to list-rows + a sheet.
   // ===================================================================
+  // Pictures (firm logo / signature / stamp) are stored inside the database row. A phone photo is
+  // several MB, which made saving slow and sometimes time out — so every picture is shrunk here first
+  // (max 700 px, usually 30–150 KB). Transparent PNGs stay transparent.
+  var IMG_MAX_DIM = 700, IMG_MAX_CHARS = 350000;
+  function shrinkDataUrl(src) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onerror = function () { resolve(src); };
+      img.onload = function () {
+        var isPng = /^data:image\/(png|gif|webp|svg)/i.test(src);
+        var dim = IMG_MAX_DIM, out = src;
+        for (var attempt = 0; attempt < 3; attempt++) {
+          var s = Math.min(1, dim / Math.max(img.width, img.height));
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.width * s)); c.height = Math.max(1, Math.round(img.height * s));
+          var g = c.getContext('2d');
+          if (!isPng) { g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); }
+          g.drawImage(img, 0, 0, c.width, c.height);
+          out = isPng ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.85);
+          if (out.length <= IMG_MAX_CHARS) break;
+          dim = Math.round(dim * 0.7);
+          if (isPng && attempt === 1) { isPng = false; dim = IMG_MAX_DIM; } // a large non-flat PNG: fall back to JPEG
+        }
+        resolve(out.length < src.length ? out : src);
+      };
+      img.src = src;
+    });
+  }
+  function readImageFile(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { shrinkDataUrl(reader.result).then(resolve); };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsDataURL(file);
+    });
+  }
+
   function simpleCrud(opts) {
     // opts: {table, perm, editPerm, deletePerm, columns:[{key,label,type}], title}
     return {
@@ -726,20 +763,44 @@
 
           openSheet((id ? 'Edit ' : 'New ') + opts.title.replace(/s$/, ''), body, editorFtr(!!id));
 
-          var pendingImages = {};
+          var pendingImages = {}, imageJobs = [];
+          function showImageState(c, dataUrl, note) {
+            var fileEl = document.getElementById('f_' + c.key + '_file');
+            if (!fileEl) return;
+            var wrap = fileEl.parentNode, th = wrap.querySelector('img.thumb');
+            if (!th) { th = document.createElement('img'); th.className = 'thumb'; th.style.marginTop = '6px'; wrap.appendChild(th); }
+            th.src = dataUrl;
+            var st = wrap.querySelector('.imgnote');
+            if (!st) { st = document.createElement('div'); st.className = 'hint imgnote'; wrap.appendChild(st); }
+            st.textContent = note;
+          }
           opts.columns.filter(function (c) { return c.type === 'image'; }).forEach(function (c) {
             var fileEl = document.getElementById('f_' + c.key + '_file');
             fileEl.addEventListener('change', function () {
               var file = fileEl.files[0];
               if (!file) return;
-              var reader = new FileReader();
-              reader.onload = function () { pendingImages[c.key] = reader.result; };
-              reader.readAsDataURL(file);
+              var job = readImageFile(file).then(function (url) {
+                pendingImages[c.key] = url;
+                showImageState(c, url, 'Tasveer tayyar (' + Math.round(url.length / 1024) + ' KB) — Save dabayen.');
+              }).catch(function () { var e = document.getElementById('formErr'); if (e) e.textContent = 'Tasveer parh nahi saki — dusri file chunein.'; });
+              imageJobs.push(job);
+              showImageState(c, '', 'Tasveer chhoti ho rahi hai…');
             });
+            // an already-saved picture that is too big (uploaded before this fix) is shrunk once, on the next Save
+            if (rec[c.key] && String(rec[c.key]).length > IMG_MAX_CHARS) {
+              imageJobs.push(shrinkDataUrl(rec[c.key]).then(function (url) { if (url.length < String(rec[c.key]).length) pendingImages[c.key] = url; }));
+            }
           });
 
           document.getElementById('cancelBtn').addEventListener('click', closeSheet);
           document.getElementById('saveBtn').addEventListener('click', async function () {
+            var btn = this, label = btn.textContent;
+            if (btn.disabled) return;
+            btn.disabled = true; btn.textContent = 'Saving…';
+            try { await doSave(); } finally { if (document.body.contains(btn)) { btn.disabled = false; btn.textContent = label; } }
+          });
+          async function doSave() {
+            await Promise.all(imageJobs);
             var payload = {};
             opts.columns.forEach(function (c) {
               if (c.type === 'bool') payload[c.key] = document.getElementById('f_' + c.key).checked;
@@ -753,13 +814,21 @@
             });
             var errEl = document.getElementById('formErr');
             if (id && opts.useMerge) {
+              // send only what changed (and its original value): a firm row can hold three pictures, and
+              // sending them back and forth on every save made it slow
+              var changedNew = {}, changedOrig = {};
+              Object.keys(payload).forEach(function (k) {
+                var a = payload[k], b = originalSnapshot[k];
+                if (String(a == null ? '' : a) !== String(b == null ? '' : b)) { changedNew[k] = a; changedOrig[k] = b == null ? null : b; }
+              });
+              if (!Object.keys(changedNew).length) { closeSheet(); render(); return; }
               function queueCrudMergeEdit() {
-                OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: opts.table, headerId: id, headerOriginal: originalSnapshot, headerNew: payload });
+                OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: opts.table, headerId: id, headerOriginal: changedOrig, headerNew: changedNew });
                 toast('No internet — your change is saved locally and will sync when back online.', true);
               }
               if (!navigator.onLine) { queueCrudMergeEdit(); broadcastRefresh(opts.table); closeSheet(); render(); return; }
               var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
-                p_table: opts.table, p_id: id, p_original: originalSnapshot, p_new: payload
+                p_table: opts.table, p_id: id, p_original: changedOrig, p_new: changedNew
               });
               if (mergeErr) {
                 if (OfflineQueue.isNetworkError(mergeErr)) { queueCrudMergeEdit(); broadcastRefresh(opts.table); closeSheet(); render(); return; }
@@ -812,7 +881,7 @@
             broadcastRefresh(opts.table);
             closeSheet();
             render();
-          });
+          }
           var delBtn = document.getElementById('delBtn');
           if (delBtn) delBtn.addEventListener('click', async function () {
             var noun = opts.title.replace(/s$/, '').toLowerCase();
