@@ -261,7 +261,7 @@
     var [{ data: parties }, { data: items }, { data: companies }, { data: warehouses }, { data: units }, { data: specs }] = await Promise.all([
       sb.from('parties').select('id,name,kind,city,credit_days').is('deleted_at', null).order('name'),
       sb.from('items').select('id,name,unit,sale_rate,buy_rate,tax_pct,stock_qty,item_type').is('deleted_at', null).order('name'),
-      sb.from('companies').select('id,name,city,phone,ntn,logo,signature,stamp,is_default,quotation_terms').is('deleted_at', null).order('name'),
+      sb.from('companies').select('id,name,address,city,phone,email,ntn,strn,logo,signature,stamp,is_default,quotation_terms').is('deleted_at', null).order('name'),
       sb.from('warehouses').select('id,name,is_default').eq('active', true).is('deleted_at', null).order('name'),
       sb.from('item_units').select('id,item_id,unit,factor,rate,is_default,line_no').is('deleted_at', null).order('line_no'),
       sb.from('item_specs').select('item_id,label,value,line_no').is('deleted_at', null).order('line_no')
@@ -4439,15 +4439,18 @@
   // companies list, so they are fetched once per firm when printing.
   async function firmForPrint(companyId) {
     var key = companyId || '_default';
-    if (firmCache[key]) return firmCache[key];
-    var q = sb.from('companies').select('id,name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null);
+    if (firmCache[key] && Date.now() - firmCache[key].fetchedAt < 60000) return firmCache[key];
+    var q = sb.from('companies').select('id,name,address,city,phone,email,ntn,strn,logo,signature,stamp,is_default').is('deleted_at', null);
     q = companyId ? q.eq('id', companyId) : q.order('is_default', { ascending: false }).limit(1);
     // .then(null, …), not .catch — query builders have no .catch, and the
     // TypeError used to abort every Print before anything was shown.
     var res = await q.maybeSingle().then(null, function () { return { data: null }; });
     var row = (res && res.data) || state.companies.filter(function (c) { return c.id === companyId; })[0] ||
       state.companies.filter(function (c) { return c.is_default; })[0] || { name: 'OHT Accounting System' };
-    if (row.logo && !row.logoTrim) row.logoTrim = await trimLogo(row.logo);
+    var old = firmCache[key];
+    if (row.logo && old && old.logo === row.logo && old.logoTrim) row.logoTrim = old.logoTrim;
+    else if (row.logo) row.logoTrim = await trimLogo(row.logo);
+    row.fetchedAt = Date.now();
     firmCache[key] = row;
     return row;
   }
@@ -4456,7 +4459,13 @@
     return esc(((f && f.name) || 'O').trim().charAt(0).toUpperCase() || 'O');
   }
   function firmAddrText(f) {
-    return f ? [f.city, f.phone, f.ntn ? 'NTN ' + f.ntn : ''].filter(Boolean).join(' \u00B7 ') : '';
+    return f ? [f.address, f.city, f.phone, f.email, f.ntn ? 'NTN ' + f.ntn : '', f.strn ? 'STRN ' + f.strn : ''].filter(Boolean).join(' \u00B7 ') : '';
+  }
+  // Print letterhead: one line each — address, city, phone, email, NTN, STRN (empty ones are skipped).
+  function firmLinesHtml(f) {
+    if (!f) return '';
+    return [f.address, f.city, f.phone, f.email, f.ntn ? 'NTN: ' + f.ntn : '', f.strn ? 'STRN: ' + f.strn : '']
+      .filter(Boolean).map(function (x) { return '<div class="fa">' + esc(x) + '</div>'; }).join('');
   }
   function printStamp() {
     var d = new Date();
@@ -4564,7 +4573,7 @@
       '<div class="pd-lh">' +
         '<div class="mk">' + firmMarkHtml(opts.firm) + '</div>' +
         '<div><div class="fn">' + esc((opts.firm && opts.firm.name) || 'OHT Accounting System') + '</div>' +
-          '<div class="fa">' + esc(firmAddrText(opts.firm)) + '</div><div class="tag">' + esc(opts.tag || '') + '</div></div>' +
+          firmLinesHtml(opts.firm) + '<div class="tag">' + esc(opts.tag || '') + '</div></div>' +
         '<div class="pd-meta">' +
           opts.metaRows.map(function (r) { return '<div><b>' + esc(r[0]) + '</b><span class="mono">' + esc(r[1] == null ? '—' : r[1]) + '</span></div>'; }).join('') +
         '</div>' +
@@ -4651,7 +4660,7 @@
       '<div class="pd-lh">' +
         '<div class="mk">' + firmMarkHtml(company) + '</div>' +
         '<div><div class="fn">' + esc(company.name || 'OHT Accounting System') + '</div>' +
-          '<div class="fa">' + esc(firmAddrText(company)) + '</div><div class="tag">' + esc(isSale ? 'Sales document' : 'Purchase document') + '</div></div>' +
+          firmLinesHtml(company) + '<div class="tag">' + esc(isSale ? 'Sales document' : 'Purchase document') + '</div></div>' +
         '<div class="pd-meta">' +
           '<div><b>' + (isSale ? 'Invoice no' : 'Bill no') + '</b><span class="mono">' + esc(h.vno || 'PREVIEW') + '</span></div>' +
           '<div><b>Date</b><span class="mono">' + esc(h.vdate) + '</span></div>' +
@@ -4710,6 +4719,7 @@
   var MASTER_REFRESH_KINDS = ['period_lock', 'parties', 'party_kinds', 'items', 'item_units', 'item_specs', 'companies', 'warehouses', 'services'];
   window.addEventListener('message', function (ev) {
     var d = ev.data;
+    if (d && d.oht === 'refresh' && d.kind === 'companies') firmCache = {};   // firm edited in Masters → next Print uses the new details
     if (!d || d.oht !== 'refresh' || MASTER_REFRESH_KINDS.indexOf(d.kind) < 0) return;
     (d.kind === 'services' ? loadServices() : loadMasters().then(fillFilterSelects))
       .then(reloadCurrentList).then(rerenderOpenEditor);
