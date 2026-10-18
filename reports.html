@@ -993,22 +993,77 @@
       setBody('sl', '<div class="pg-empty">Loading…</div>');
       var item = itemsCache.filter(function (i) { return i.id === itemId; })[0];
 
-      var [{ data: lines }, { data: returnLines }, { data: adj }] = await Promise.all([
-        sb.from('voucher_lines').select('qty,cost_amount,voucher_id,vouchers(vno,vtype,vdate)').eq('item_id', itemId),
-        sb.from('sales_return_lines').select('qty,cost_amount,return_id,sales_returns(rno,rdate)').eq('item_id', itemId),
-        sb.from('stock_adjustments').select('adjno,qty,reason,adj_date').eq('item_id', itemId).is('deleted_at', null)
+      // Mirrors exactly what the costing engine counts into stock (so Running ends on the Closing Stock):
+      // opening stock, purchases, general-goods sales (not those already delivered by a Delivery Challan),
+      // Delivery Challans, Material Issues, sales returns, adjustments, and raw material used / restored.
+      function uniq(a) { var m = {}; return a.filter(function (x) { if (x == null || m[x]) return false; m[x] = 1; return true; }); }
+      async function inChunks(table, cols, col, ids, extra) {
+        var out = [];
+        for (var k = 0; k < ids.length; k += 80) {
+          var q = sb.from(table).select(cols).in(col, ids.slice(k, k + 80));
+          if (extra) q = extra(q);
+          var r = await q; if (r.data) out = out.concat(r.data);
+        }
+        return out;
+      }
+      var [{ data: lines }, { data: dcLines }, { data: issues }, { data: returnLines }, { data: adj }, { data: cons }, { data: itemRow }] = await Promise.all([
+        sb.from('voucher_lines').select('qty,consumption_type,dc_line_id,vouchers!inner(vno,vtype,vdate,deleted_at)').eq('item_id', itemId).is('vouchers.deleted_at', null),
+        sb.from('dc_lines').select('qty,delivery_challans!inner(dcno,dc_date,deleted_at)').eq('item_id', itemId).eq('consumption_type', 'general_goods').is('delivery_challans.deleted_at', null),
+        sb.from('material_issues').select('qty,issue_date,notes').eq('item_id', itemId).is('deleted_at', null),
+        sb.from('sales_return_lines').select('qty,sale_line_id,sales_returns!inner(rno,rdate,deleted_at)').eq('item_id', itemId).is('sales_returns.deleted_at', null),
+        sb.from('stock_adjustments').select('adjno,qty,reason,adj_date').eq('item_id', itemId).is('deleted_at', null),
+        sb.from('voucher_line_material_consumption').select('id,qty,voucher_line_id').eq('raw_item_id', itemId),
+        sb.from('items').select('opening_qty').eq('id', itemId).single()
       ]);
 
       var events = [];
+      var openingQty = Number(itemRow && itemRow.opening_qty) || 0;
+      if (openingQty) events.push({ date: '', desc: 'Opening stock', qty: openingQty });
       (lines || []).forEach(function (l) {
         if (!l.vouchers) return;
-        events.push({ date: l.vouchers.vdate, desc: (l.vouchers.vtype === 'sale' ? 'Sale ' : 'Purchase ') + l.vouchers.vno, qty: l.vouchers.vtype === 'sale' ? -l.qty : l.qty });
+        if (l.vouchers.vtype === 'sale') {
+          if (l.consumption_type !== 'general_goods' || l.dc_line_id) return; // manufactured goods / already delivered by a DC
+          events.push({ date: l.vouchers.vdate, desc: 'Sale ' + l.vouchers.vno, qty: -l.qty });
+        } else {
+          events.push({ date: l.vouchers.vdate, desc: 'Purchase ' + l.vouchers.vno, qty: l.qty });
+        }
       });
+      (dcLines || []).forEach(function (d) {
+        if (!d.delivery_challans) return;
+        events.push({ date: d.delivery_challans.dc_date, desc: 'Delivery Challan ' + d.delivery_challans.dcno, qty: -d.qty });
+      });
+      (issues || []).forEach(function (m) { events.push({ date: m.issue_date, desc: 'Material issue' + (m.notes ? ' — ' + m.notes : ''), qty: -m.qty }); });
+      // returns count only for goods sold as general goods (same rule as the engine)
+      var saleLineIds = uniq((returnLines || []).map(function (rl) { return rl.sale_line_id; }));
+      var saleLineTypes = {};
+      (await inChunks('voucher_lines', 'id,consumption_type', 'id', saleLineIds)).forEach(function (x) { saleLineTypes[x.id] = x.consumption_type; });
       (returnLines || []).forEach(function (rl) {
-        if (!rl.sales_returns) return;
+        if (!rl.sales_returns || saleLineTypes[rl.sale_line_id] !== 'general_goods') return;
         events.push({ date: rl.sales_returns.rdate, desc: 'Return ' + rl.sales_returns.rno, qty: rl.qty });
       });
       (adj || []).forEach(function (a) { events.push({ date: a.adj_date, desc: 'Adjustment ' + (a.adjno ? a.adjno + ' ' : '') + '— ' + (a.reason || ''), qty: a.qty }); });
+      // raw material used by manufactured sales, and put back by returns of those
+      var consRows = cons || [];
+      if (consRows.length) {
+        var vlRows = await inChunks('voucher_lines', 'id,voucher_id', 'id', uniq(consRows.map(function (c) { return c.voucher_line_id; })));
+        var vlToV = {}; vlRows.forEach(function (x) { vlToV[x.id] = x.voucher_id; });
+        var vRows = await inChunks('vouchers', 'id,vno,vdate', 'id', uniq(vlRows.map(function (x) { return x.voucher_id; })), function (q) { return q.is('deleted_at', null); });
+        var vById = {}; vRows.forEach(function (x) { vById[x.id] = x; });
+        var consById = {};
+        consRows.forEach(function (c) {
+          var v = vById[vlToV[c.voucher_line_id]]; if (!v) return;
+          consById[c.id] = true;
+          events.push({ date: v.vdate, desc: 'Raw material used — ' + v.vno, qty: -c.qty });
+        });
+        var rest = await inChunks('sales_return_material_restoration', 'qty,return_line_id,consumption_id', 'consumption_id', Object.keys(consById));
+        if (rest.length) {
+          var rlRows = await inChunks('sales_return_lines', 'id,return_id', 'id', uniq(rest.map(function (x) { return x.return_line_id; })));
+          var rlToR = {}; rlRows.forEach(function (x) { rlToR[x.id] = x.return_id; });
+          var rRows = await inChunks('sales_returns', 'id,rno,rdate', 'id', uniq(rlRows.map(function (x) { return x.return_id; })), function (q) { return q.is('deleted_at', null); });
+          var rById = {}; rRows.forEach(function (x) { rById[x.id] = x; });
+          rest.forEach(function (x) { var r = rById[rlToR[x.return_line_id]]; if (r) events.push({ date: r.rdate, desc: 'Raw material returned — ' + r.rno, qty: x.qty }); });
+        }
+      }
       events.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 
       var running = 0, totalIn = 0, totalOut = 0;
@@ -1026,9 +1081,12 @@
       h += '<table class="doc-table"><thead><tr><th>Date</th><th>Event</th><th class="num">Qty ±</th><th class="num">Running</th></tr></thead><tbody>';
       events.forEach(function (e) {
         running += Number(e.qty) || 0;
-        h += '<tr><td class="mono">' + e.date + '</td><td>' + esc(e.desc) + '</td><td class="num mono' + (Number(e.qty) < 0 ? ' warn' : '') + '">' + e.qty + '</td><td class="num mono">' + running + '</td></tr>';
+        h += '<tr><td class="mono">' + (e.date || '—') + '</td><td>' + esc(e.desc) + '</td><td class="num mono' + (Number(e.qty) < 0 ? ' warn' : '') + '">' + e.qty + '</td><td class="num mono">' + running + '</td></tr>';
       });
       h += '</tbody><tfoot><tr><td colspan="3">Closing stock</td><td class="num mono">' + running + '</td></tr></tfoot></table>';
+      if (Math.abs(running - (Number(item.stock_qty) || 0)) > 0.0005) {
+        h += '<div class="rpt-note">Note: the running total (' + fmtQty(running) + ') differs from the item\'s current stock (' + fmtQty(item.stock_qty) + '). Press ⟳ to reload; if it still differs, tell your admin.</div>';
+      }
       setBody('sl', h);
     }
   };
