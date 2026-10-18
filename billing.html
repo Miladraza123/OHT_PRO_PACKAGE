@@ -2076,7 +2076,18 @@
       '<button type="button" class="btn pri" id="rt_saveBtn">Save Return</button>');
     document.getElementById('cancelBtn').addEventListener('click', closeEditor);
     Array.prototype.forEach.call(document.querySelectorAll('.rtQty'), function (el) {
-      el.addEventListener('input', function () { r.saleLines[Number(el.dataset.idx)].returnQty = Number(el.value) || 0; renderReturnEditorLines(); });
+      el.addEventListener('input', function () {
+        var li = Number(el.dataset.idx), line = r.saleLines[li];
+        var prev = Number(line.returnQty) || 0, now = Number(el.value) || 0;
+        line.returnQty = now;
+        // Only rebuild the form when the "Restore Raw Material Stock?" block has to appear / disappear —
+        // rebuilding on every keystroke replaced the box being typed in and closed the keyboard.
+        if (line.consumption_type === 'raw_material_consumption' && line.materials.length && (prev > 0) !== (now > 0)) {
+          renderReturnEditorLines();
+          var again = document.querySelector('.rtQty[data-idx="' + li + '"]');
+          if (again) { again.focus(); }
+        }
+      });
     });
     Array.prototype.forEach.call(document.querySelectorAll('.rtRestoreToggle'), function (el) {
       el.addEventListener('change', function () {
@@ -3269,7 +3280,12 @@
     await loadMasters();
     if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
     if (!id) {
-      transferEditing = { isNew: true, id: null, header: { tdate: new Date().toISOString().slice(0, 10), from_warehouse: null, to_warehouse: null, narration: '' }, lines: [{ id: null, item_id: null, qty: 0 }] };
+      // The two dropdowns show their first warehouse even when nothing was chosen, so start with real values:
+      // From = the default warehouse, To = the first different one.
+      var whList = state.warehouses || [];
+      var fromWh = whList.filter(function (w) { return w.is_default; })[0] || whList[0] || null;
+      var toWh = whList.filter(function (w) { return !fromWh || w.id !== fromWh.id; })[0] || null;
+      transferEditing = { isNew: true, id: null, header: { tdate: new Date().toISOString().slice(0, 10), from_warehouse: fromWh ? fromWh.id : null, to_warehouse: toWh ? toWh.id : null, narration: '' }, lines: [{ id: null, item_id: null, qty: 0 }] };
     } else {
       var [{ data: header }, { data: lines }] = await Promise.all([
         sb.from('stock_transfers').select('*').eq('id', id).single(),
@@ -3351,6 +3367,11 @@
   async function saveTransfer() {
     var t = transferEditing;
     var errEl = document.getElementById('editorErr');
+    // what the two boxes show is what counts
+    var fromSel = document.getElementById('t_from'), toSel = document.getElementById('t_to');
+    if (fromSel && fromSel.value) t.header.from_warehouse = fromSel.value;
+    if (toSel && toSel.value) t.header.to_warehouse = toSel.value;
+    if ((state.warehouses || []).length < 2) { errEl.textContent = 'Stock transfer ke liye kam az kam 2 warehouses chahiye — pehle Masters → Warehouses mein doosra warehouse banayen.'; return; }
     if (!t.header.from_warehouse || !t.header.to_warehouse) { errEl.textContent = 'Pick both warehouses'; return; }
     if (t.header.from_warehouse === t.header.to_warehouse) { errEl.textContent = 'From and To warehouses must be different'; return; }
     var validLines = t.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
