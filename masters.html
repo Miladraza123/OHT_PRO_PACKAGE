@@ -1270,57 +1270,101 @@
     });
   }
 
-  // Warehouse-wise stock breakdown for one item (§12) — no per-warehouse
-  // running balance is kept anywhere; this sums the same warehouse-tagged
-  // rows every purchase/sale/return/transfer already carries, the same way
-  // reports.html's Item Stock Ledger sums an item's whole history. Stock
-  // adjustments carry no warehouse of their own, so they aren't included —
-  // the total here can run slightly behind items.stock_qty if adjustments
-  // were used; it is a breakdown for visibility, not a second source of truth.
+  // Warehouse-wise stock breakdown for one item. No per-warehouse balance is stored anywhere; this adds up
+  // exactly the movements the costing engine counts into the item's stock (so the rows add up to the item's
+  // stock): opening stock, purchases, general-goods sales that were not already delivered by a Delivery
+  // Challan, Delivery Challans, Material Issues, sales returns, raw material used / put back, and transfers.
+  // Anything without a warehouse of its own (stock adjustments, or a movement saved without a warehouse)
+  // is shown on a separate "No warehouse" row instead of being left out.
   async function loadItemWarehouseStock(itemId, rec, warehouseOptions) {
     var wrap = document.getElementById('whStockWrap');
     if (!wrap) return;
     wrap.innerHTML = '<div class="group-lbl">Warehouse stock</div><div class="hint">Loading…</div>';
+    var NONE = '__none';
     var byWh = {};
-    function add(whId, qty) { if (!whId) return; byWh[whId] = (byWh[whId] || 0) + qty; }
-    if (rec.opening_warehouse_id) add(rec.opening_warehouse_id, Number(rec.opening_qty) || 0);
+    function add(whId, qty) { var k = whId || NONE; byWh[k] = (byWh[k] || 0) + qty; }
+    function uniq(a) { var m = {}; return a.filter(function (x) { if (x == null || m[x]) return false; m[x] = 1; return true; }); }
+    async function inChunks(table, cols, col, ids, extra) {
+      var out = [];
+      for (var k = 0; k < ids.length; k += 80) {
+        var q = sb.from(table).select(cols).in(col, ids.slice(k, k + 80));
+        if (extra) q = extra(q);
+        var r = await q; if (r.data) out = out.concat(r.data);
+      }
+      return out;
+    }
+    var n = function (v) { return Number(v) || 0; };
+    if (n(rec.opening_qty)) add(rec.opening_warehouse_id, n(rec.opening_qty));
 
-    var [{ data: vlines }, { data: rlines }, { data: tlines }] = await Promise.all([
-      sb.from('voucher_lines').select('qty,warehouse_id,vouchers(vtype)').eq('item_id', itemId),
-      sb.from('sales_return_lines').select('qty,warehouse_id,sales_returns(id)').eq('item_id', itemId),
-      sb.from('stock_transfer_lines').select('qty,stock_transfers(from_warehouse,to_warehouse)').eq('item_id', itemId)
+    var [{ data: vlines }, { data: dclines }, { data: issues }, { data: rlines }, { data: tlines }, { data: adjs }, { data: cons }] = await Promise.all([
+      sb.from('voucher_lines').select('qty,warehouse_id,consumption_type,dc_line_id,vouchers!inner(vtype,deleted_at)').eq('item_id', itemId).is('vouchers.deleted_at', null),
+      sb.from('dc_lines').select('qty,warehouse_id,delivery_challans!inner(deleted_at)').eq('item_id', itemId).eq('consumption_type', 'general_goods').is('delivery_challans.deleted_at', null),
+      sb.from('material_issues').select('qty,warehouse_id').eq('item_id', itemId).is('deleted_at', null),
+      sb.from('sales_return_lines').select('qty,warehouse_id,sale_line_id,sales_returns!inner(deleted_at)').eq('item_id', itemId).is('sales_returns.deleted_at', null),
+      sb.from('stock_transfer_lines').select('qty,stock_transfers!inner(from_warehouse,to_warehouse,deleted_at)').eq('item_id', itemId).is('stock_transfers.deleted_at', null),
+      sb.from('stock_adjustments').select('qty').eq('item_id', itemId).is('deleted_at', null),
+      sb.from('voucher_line_material_consumption').select('id,qty,warehouse_id,voucher_line_id').eq('raw_item_id', itemId)
     ]);
     (vlines || []).forEach(function (l) {
-      if (!l.vouchers || !l.warehouse_id) return;
-      add(l.warehouse_id, l.vouchers.vtype === 'sale' ? -(Number(l.qty) || 0) : (Number(l.qty) || 0));
+      if (!l.vouchers) return;
+      if (l.vouchers.vtype === 'sale') {
+        if (l.consumption_type !== 'general_goods' || l.dc_line_id) return; // manufactured, or already taken out by its Delivery Challan
+        add(l.warehouse_id, -n(l.qty));
+      } else {
+        add(l.warehouse_id, n(l.qty));
+      }
     });
-    (rlines || []).forEach(function (l) {
-      if (!l.sales_returns || !l.warehouse_id) return;
-      add(l.warehouse_id, Number(l.qty) || 0);
-    });
+    (dclines || []).forEach(function (l) { add(l.warehouse_id, -n(l.qty)); });
+    (issues || []).forEach(function (l) { add(l.warehouse_id, -n(l.qty)); });
+    var saleLineType = {};
+    (await inChunks('voucher_lines', 'id,consumption_type', 'id', uniq((rlines || []).map(function (l) { return l.sale_line_id; })))).forEach(function (x) { saleLineType[x.id] = x.consumption_type; });
+    (rlines || []).forEach(function (l) { if (saleLineType[l.sale_line_id] === 'general_goods') add(l.warehouse_id, n(l.qty)); });
     (tlines || []).forEach(function (l) {
       if (!l.stock_transfers) return;
-      var q = Number(l.qty) || 0;
-      add(l.stock_transfers.from_warehouse, -q);
-      add(l.stock_transfers.to_warehouse, q);
+      add(l.stock_transfers.from_warehouse, -n(l.qty));
+      add(l.stock_transfers.to_warehouse, n(l.qty));
     });
+    (adjs || []).forEach(function (a) { add(null, n(a.qty)); });
+    // raw material used by manufactured sales (and put back by returns of those)
+    var consRows = (cons || []);
+    if (consRows.length) {
+      var vlRows = await inChunks('voucher_lines', 'id,voucher_id', 'id', uniq(consRows.map(function (c) { return c.voucher_line_id; })));
+      var vOk = {};
+      (await inChunks('vouchers', 'id', 'id', uniq(vlRows.map(function (x) { return x.voucher_id; })), function (q) { return q.is('deleted_at', null); })).forEach(function (v) { vOk[v.id] = true; });
+      var lineOk = {}; vlRows.forEach(function (x) { if (vOk[x.voucher_id]) lineOk[x.id] = true; });
+      var liveCons = {};
+      consRows.forEach(function (c) { if (lineOk[c.voucher_line_id]) { liveCons[c.id] = true; add(c.warehouse_id, -n(c.qty)); } });
+      var rest = await inChunks('sales_return_material_restoration', 'qty,warehouse_id,return_line_id,consumption_id', 'consumption_id', Object.keys(liveCons));
+      if (rest.length) {
+        var rl = await inChunks('sales_return_lines', 'id,return_id', 'id', uniq(rest.map(function (x) { return x.return_line_id; })));
+        var rOk = {};
+        (await inChunks('sales_returns', 'id', 'id', uniq(rl.map(function (x) { return x.return_id; })), function (q) { return q.is('deleted_at', null); })).forEach(function (r) { rOk[r.id] = true; });
+        var rlOk = {}; rl.forEach(function (x) { if (rOk[x.return_id]) rlOk[x.id] = true; });
+        rest.forEach(function (x) { if (rlOk[x.return_line_id]) add(x.warehouse_id, n(x.qty)); });
+      }
+    }
 
     var whName = {};
     warehouseOptions.forEach(function (w) { whName[w.id] = w.name; });
+    whName[NONE] = 'No warehouse (adjustments / not assigned)';
     var rows = Object.keys(byWh).filter(function (id) { return Math.abs(byWh[id]) > 0.0005; })
-      .sort(function (a, b) { return (whName[a] || '').localeCompare(whName[b] || ''); });
+      .sort(function (a, b) { return a === NONE ? 1 : b === NONE ? -1 : (whName[a] || '').localeCompare(whName[b] || ''); });
 
     var html = '<div class="group-lbl">Warehouse stock</div>';
     if (!rows.length) {
-      html += '<div class="hint">No warehouse-tagged movements yet — this item\'s stock has not been assigned to a specific warehouse.</div>';
+      html += '<div class="hint">No stock movements yet for this item.</div>';
     } else {
+      var total = 0;
       html += '<div class="lines" style="margin-top:8px">';
       rows.forEach(function (whId) {
+        total += byWh[whId];
         html += '<div class="ln"><div class="ln-top">' +
           '<div style="flex:1;min-width:0">' + esc(whName[whId] || 'Unknown warehouse') + '</div>' +
           '<div class="mono" style="font-weight:600">' + fmt(byWh[whId]) + (rec.unit ? ' ' + esc(rec.unit) : '') + '</div>' +
           '</div></div>';
       });
+      html += '<div class="ln"><div class="ln-top"><div style="flex:1;min-width:0;font-weight:700">Total</div>' +
+        '<div class="mono" style="font-weight:700">' + fmt(total) + (rec.unit ? ' ' + esc(rec.unit) : '') + '</div></div></div>';
       html += '</div>';
     }
     wrap.innerHTML = html;
