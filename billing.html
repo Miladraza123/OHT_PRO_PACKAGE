@@ -59,7 +59,10 @@
   .pd .totals td.num{font-family:'IBM Plex Mono',monospace; text-align:right; font-variant-numeric:tabular-nums;}
   .pd .totals tr.grand td{font-weight:700; font-size:13px; border-top:2px solid #2A2620; border-bottom:3px double #2A2620; background:#F5F1E6;}
   .pd .totals tr.bal td{font-weight:700; color:#A0532E;}
-  .pd .narr{margin-top:14px; font-size:11px; color:#6B6357;}
+  .pd .narr{margin-top:14px; font-size:11px; color:#6B6357; white-space:pre-line;}
+  .pd .terms{margin-top:12px; border:1px solid #D8D0BF; border-radius:6px; padding:8px 12px; background:#FCFAF7; font-size:11px; color:#3A342B; white-space:pre-line; line-height:1.5; break-inside:avoid;}
+  .pd .terms b{display:block; color:#2A2620; text-transform:uppercase; letter-spacing:.6px; font-size:9.5px; margin-bottom:3px;}
+  .pd .pd-ttl + .party{margin-top:16px;}
   .pd .narr b{color:#2A2620; text-transform:uppercase; letter-spacing:.6px; font-size:9.5px; display:block; margin-bottom:2px;}
 </style>
 </head>
@@ -258,7 +261,7 @@
     var [{ data: parties }, { data: items }, { data: companies }, { data: warehouses }, { data: units }, { data: specs }] = await Promise.all([
       sb.from('parties').select('id,name,kind,city,credit_days').is('deleted_at', null).order('name'),
       sb.from('items').select('id,name,unit,sale_rate,buy_rate,tax_pct,stock_qty,item_type').is('deleted_at', null).order('name'),
-      sb.from('companies').select('id,name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null).order('name'),
+      sb.from('companies').select('id,name,city,phone,ntn,logo,signature,stamp,is_default,quotation_terms').is('deleted_at', null).order('name'),
       sb.from('warehouses').select('id,name,is_default').eq('active', true).is('deleted_at', null).order('name'),
       sb.from('item_units').select('id,item_id,unit,factor,rate,is_default,line_no').is('deleted_at', null).order('line_no'),
       sb.from('item_specs').select('item_id,label,value,line_no').is('deleted_at', null).order('line_no')
@@ -1021,10 +1024,10 @@
     voucher: { h: ['vdate', 'due_date', 'party_id', 'company_id', 'narration', 'tax_on', 'discount', 'paid', 'loading_on', 'loading_amt',
       'cartage_on', 'cartage_amt', 'cutting_on', 'cutting_amt', 'other_charge_on', 'other_charge_name', 'other_charge_amt'],
       l: ['item_id', 'custom_name', 'custom_unit', 'description', 'qty', 'rate', 'tax_pct', 'sale_unit', 'sale_qty', 'consumption_type', 'warehouse_id', 'dc_line_id'] },
-    doc: { h: ['qdate', 'podate', 'party_id', 'walkin_name', 'company_id', 'narration', 'tax_on', 'discount', 'loading_on', 'loading_amt',
+    doc: { h: ['qdate', 'podate', 'party_id', 'walkin_name', 'company_id', 'narration', 'terms', 'tax_on', 'discount', 'loading_on', 'loading_amt',
       'cartage_on', 'cartage_amt', 'cutting_on', 'cutting_amt', 'other_charge_on', 'other_charge_name', 'other_charge_amt'],
       l: ['item_id', 'custom_name', 'custom_unit', 'description', 'qty', 'rate', 'tax_pct'] },
-    svc: { h: ['sidate', 'sqdate', 'party_id', 'walkin_name', 'company_id', 'billing_label', 'notes', 'tax_on', 'discount', 'paid', 'valid_till'],
+    svc: { h: ['sidate', 'sqdate', 'party_id', 'walkin_name', 'company_id', 'billing_label', 'notes', 'terms', 'tax_on', 'discount', 'paid', 'valid_till'],
       l: ['service_id', 'description', 'qty', 'rate', 'tax_pct'] },
     transfer: { h: ['tdate', 'from_warehouse', 'to_warehouse', 'narration'], l: ['item_id', 'qty'] },
     adjust: { h: ['adj_date', 'item_id', 'dir', 'qty_abs', 'reason_kind', 'notes'], l: [] },
@@ -2320,6 +2323,8 @@
     var cfg = DOC_CONFIG[type];
     var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
     var h = { party_id: null, company_id: defCompany ? defCompany.id : null, narration: '', tax_on: false, discount: 0, status: 'open' };
+    // Quotation only (purchase orders have no terms): start from the firm's default quotation terms — editable per quotation
+    if (type === 'quotation') h.terms = (defCompany && defCompany.quotation_terms) || '';
     h[cfg.dateField] = new Date().toISOString().slice(0, 10);
     if (cfg.hasCharges) {
       h.loading_on = false; h.loading_amt = 0; h.cartage_on = false; h.cartage_amt = 0; h.cutting_on = false; h.cutting_amt = 0;
@@ -2431,6 +2436,11 @@
     }
     html += '<div class="group-lbl">Note</div>';
     html += '<div class="field"><textarea id="d_narration" rows="2">' + esc(h.narration || '') + '</textarea></div>';
+    if (d.type === 'quotation') {
+      html += '<div class="group-lbl">Terms &amp; Conditions</div>';
+      html += '<div class="field"><textarea id="d_terms" rows="5" placeholder="e.g. 1. Rates valid for 15 days">' + esc(h.terms || '') + '</textarea>' +
+        '<div class="hint">Firm ke default terms se bhare hote hain — is Quotation ke liye badal sakte hain. Jaisa likhenge waisa print hoga.</div></div>';
+    }
 
     html += '<div class="doc-sum">' +
       '<div class="doc-sum-row"><span>Sub total</span><span class="v">' + fmtMoney(totals.sub) + '</span></div>' +
@@ -2457,6 +2467,8 @@
     document.getElementById('d_taxon').addEventListener('change', function () { h.tax_on = this.checked; renderDocEditor(); });
     document.getElementById('d_discount').addEventListener('input', function () { h.discount = Number(this.value) || 0; renderDocEditor(); });
     document.getElementById('d_narration').addEventListener('input', function () { h.narration = this.value; });
+    var termsEl = document.getElementById('d_terms');
+    if (termsEl) termsEl.addEventListener('input', function () { h.terms = this.value; });
     var walkSw = document.getElementById('d_walkin');
     if (walkSw) walkSw.addEventListener('change', function () {
       if (this.checked) { h.walkin_name = h.walkin_name || ''; h.party_id = null; } else { h.walkin_name = null; }
@@ -2715,7 +2727,7 @@
         { label: 'From', name: company.name, sub: firmAddrText(company) }
       ],
       cols: cols, rows: rows, totals: totalsRows,
-      narrationLabel: 'Note', narration: h.narration,
+      narrationLabel: 'Note', narration: h.narration, terms: d.type === 'quotation' ? h.terms : '',
       sigLabels: sigLabels, sigIndex: po.sigIndex, sigImg: company.signature, stampImg: po.stampOn ? company.stamp : null,
       footerRight: cfg.title + ' · ' + h[cfg.numField]
     });
@@ -2849,6 +2861,7 @@
     if (!id) {
       var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
       var h = { party_id: null, company_id: defCompany ? defCompany.id : null, narration: '', notes: '', tax_on: false, discount: 0, status: 'open' };
+      if (type === 'squote') h.terms = (defCompany && defCompany.quotation_terms) || '';
       h[cfg.dateField] = new Date().toISOString().slice(0, 10);
       if (type === 'sinvoice') h.paid = 0;
       svcEditing = { type: type, isNew: true, id: null, header: h, lines: [{ id: null, service_id: null, description: '', qty: 1, rate: 0, tax_pct: 0, amount: 0 }], originalHeader: null, originalLines: [] };
@@ -2929,6 +2942,11 @@
 
     html += '<div class="group-lbl">Notes</div>';
     html += '<div class="field"><textarea id="s_notes" rows="2">' + esc(h.notes) + '</textarea></div>';
+    if (d.type === 'squote') {
+      html += '<div class="group-lbl">Terms &amp; Conditions</div>';
+      html += '<div class="field"><textarea id="s_terms" rows="5" placeholder="e.g. 1. Rates valid for 15 days">' + esc(h.terms || '') + '</textarea>' +
+        '<div class="hint">Firm ke default terms se bhare hote hain — is Quotation ke liye badal sakte hain. Jaisa likhenge waisa print hoga.</div></div>';
+    }
 
     html += '<div class="doc-sum">' +
       '<div class="doc-sum-row"><span>Sub total</span><span class="v">' + fmtMoney(totals.sub) + '</span></div>' +
@@ -2952,6 +2970,8 @@
     document.getElementById('s_discount').addEventListener('input', function () { h.discount = Number(this.value) || 0; renderServiceDocEditor(); });
     document.getElementById('s_billinglabel').addEventListener('input', function () { h.billing_label = this.value; });
     document.getElementById('s_notes').addEventListener('input', function () { h.notes = this.value; });
+    var sTermsEl = document.getElementById('s_terms');
+    if (sTermsEl) sTermsEl.addEventListener('input', function () { h.terms = this.value; });
     var sWalkSw = document.getElementById('s_walkin');
     if (sWalkSw) sWalkSw.addEventListener('change', function () {
       if (this.checked) { h.walkin_name = h.walkin_name || ''; h.party_id = null; } else { h.walkin_name = null; }
@@ -3158,7 +3178,7 @@
         { label: 'From', name: company.name, sub: firmAddrText(company) }
       ],
       cols: cols, rows: rows, totals: totalsRows,
-      narrationLabel: 'Notes', narration: h.notes || h.narration,
+      narrationLabel: 'Notes', narration: h.notes || h.narration, terms: isInv ? '' : h.terms,
       sigLabels: sigLabels, sigIndex: po.sigIndex, sigImg: company.signature, stampImg: po.stampOn ? company.stamp : null,
       footerRight: cfg.title + ' · ' + h[cfg.numField]
     });
@@ -4554,6 +4574,10 @@
 
     if (opts.narration) {
       html += '<div class="narr"><b>' + esc(opts.narrationLabel || 'Narration') + '</b>' + esc(opts.narration) + '</div>';
+    }
+    // Terms & Conditions: printed exactly as typed (line breaks kept), only when something is written
+    if (opts.terms && String(opts.terms).trim()) {
+      html += '<div class="terms"><b>Terms &amp; Conditions</b>' + esc(String(opts.terms).trim()) + '</div>';
     }
 
     html += '<div class="pd-spacer"></div>' +
