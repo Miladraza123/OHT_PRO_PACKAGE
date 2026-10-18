@@ -423,7 +423,7 @@
     [failedStatusEl, failedStatusMEl].forEach(function (el) {
       if (failed.length) {
         el.style.display = '';
-        el.textContent = failed.length + ' change(s) could not sync — contact admin';
+        el.textContent = failed.length + ' change(s) could not sync — tap for details';
         el.title = 'These edits could not be saved even after coming back online. They are kept in this browser only — do not clear site data before resolving.';
       } else {
         el.style.display = 'none';
@@ -436,6 +436,26 @@
   }
   checkFailedQueue();
   setInterval(checkFailedQueue, 15000);
+
+  // Tap the red "could not sync" message: see what failed and (if wanted) discard it.
+  function showFailedDetails() {
+    var key = 'oht:offlineQueueFailed:' + (currentUserId || 'anon'), failed;
+    try { failed = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { failed = []; }
+    if (!failed.length) { checkFailedQueue(); return; }
+    var lines = failed.slice(0, 4).map(function (f) {
+      var op = f.op || {};
+      return '• ' + (op.table || op.headerTable || op.fn || 'change') + ': ' + String(f.error || 'unknown error').slice(0, 140);
+    }).join('\n');
+    confirmDialog(failed.length + ' tabdeeli(yan) sync nahi hui',
+      lines + '\n\nYe tabdeeliyan server ne qabool nahi ki (aksar bohat bari tasveer ya purani tabdeeli). Dobara wahi cheez save kar ke dekhein. Agar ye ab zaroori nahi to inhein hata dein.',
+      'Hata dein', true).then(function (ok) {
+      if (!ok) return;
+      try { localStorage.removeItem(key); } catch (e) {}
+      lastFailedCount = 0; checkFailedQueue();
+      toast('Hata di gayi.');
+    });
+  }
+  [failedStatusEl, failedStatusMEl].forEach(function (el) { el.style.cursor = 'pointer'; el.addEventListener('click', showFailedDetails); });
 
   function navItemHtml(it) {
     return '<button type="button" class="navitem" data-app="' + it.app + '"' + (it.arg ? ' data-arg="' + it.arg + '"' : '') + '>' +
