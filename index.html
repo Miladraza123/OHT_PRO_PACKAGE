@@ -577,6 +577,8 @@
       var m = MODULES.filter(function (x) { return x.key === key; })[0];
       if (!m) return;
       frameReady[key] = false;
+      // a reloaded module starts on its first screen — send it back to the one the user was on
+      if (navArg[key] != null && !/^(pay|recv):/.test(String(navArg[key]))) pendingGoto[key] = { oht: 'goto', app: key, arg: navArg[key] };
       frames[key].src = m.src + '?v=' + reloadStamp;
     });
     toast('Reloading the latest version…');
@@ -606,7 +608,9 @@
   // by a module's own { oht:'open', ... } deep-link (e.g. Masters' report
   // links), so either origin ends up in the same, consistent state.
   // Sidebar highlight, titles and last-open screen for app/arg.
+  var navArg = {};   // module key -> the screen it is on (so Reload can put it back on the same screen)
   function markNav(app, arg) {
+    navArg[app] = (arg === undefined ? null : arg);
     updateSidebarActive(app, arg || null);
     var label = navLabelFor(app, arg || null);
     document.getElementById('shellTitle').textContent = label;
@@ -642,7 +646,7 @@
     if (d.oht === 'open') { openModule(d.app, d.arg); return; }
     // A module moved to another of its own screens by itself (e.g. Billing:
     // Quotation → Delivery Challan → Sale) — keep the sidebar and title in step.
-    if (d.oht === 'navigated') { if (MODULES.some(function (x) { return x.key === d.app; })) markNav(d.app, d.arg); return; }
+    if (d.oht === 'navigated') { if (MODULES.some(function (x) { return x.key === d.app; })) { if (d.app === activeKey) markNav(d.app, d.arg); else navArg[d.app] = (d.arg === undefined ? null : d.arg); } return; } // a hidden module (e.g. just reloaded) must not change the title / sidebar
     if (d.oht === 'installPrompt') { installBtn.click(); return; }
     if (d.oht === 'supportEnter' && d.org_id) {
       sb.rpc('sa_set_support', { p_org: d.org_id }).then(function (r) { if (r.error) toast(r.error.message, true); else location.reload(); });
