@@ -2306,7 +2306,7 @@
     var rows = [];
     if (navigator.onLine) {
       try {
-        var res = await sb.from('companies').select('name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null).order('is_default', { ascending: false });
+        var res = await sb.from('companies').select('name,address,city,phone,email,ntn,strn,logo,signature,stamp,is_default').is('deleted_at', null).order('is_default', { ascending: false });
         rows = (res && res.data) || [];
       } catch (e) { rows = []; }
     }
@@ -2320,8 +2320,11 @@
     if (f && f.logo) return '<img src="' + esc(f.logoTrim || f.logo) + '" alt="">';
     return esc(((f && f.name) || 'O').trim().charAt(0).toUpperCase() || 'O');
   }
+  // one line each: address, city, phone, email, NTN, STRN (empty ones skipped)
   function firmAddrText(f) {
-    return f ? [f.city, f.phone, f.ntn ? 'NTN ' + f.ntn : ''].filter(Boolean).join(' \u00B7 ') : '';
+    if (!f) return '';
+    return [f.address, f.city, f.phone, f.email, f.ntn ? 'NTN: ' + f.ntn : '', f.strn ? 'STRN: ' + f.strn : '']
+      .filter(Boolean).map(function (x) { return '<div class="fa">' + esc(x) + '</div>'; }).join('');
   }
   function printStamp() {
     var d = new Date();
@@ -2439,7 +2442,7 @@
       '<div class="pd-lh">' +
         '<div class="mk">' + firmMarkHtml(firmRow) + '</div>' +
         '<div><div class="fn">' + esc(firmRow.name || 'OHT Accounting System') + '</div>' +
-          '<div class="fa">' + esc(firmAddrText(firmRow)) + '</div><div class="tag">Daily cash book</div></div>' +
+          firmAddrText(firmRow) + '<div class="tag">Daily cash book</div></div>' +
         '<div class="pd-meta">' +
           '<div><b>Date</b><span class="mono">' + esc(longDate(state.date)) + '</span></div>' +
           '<div><b>Page</b><span class="mono">' + esc(s.page || '\u2014') + '</span></div>' +

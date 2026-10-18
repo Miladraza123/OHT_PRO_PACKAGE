@@ -199,7 +199,7 @@
   var firm = null;
   async function loadFirm() {
     if (firm) return firm;
-    var res = await sb.from('companies').select('name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null).order('is_default', { ascending: false });
+    var res = await sb.from('companies').select('name,address,city,phone,email,ntn,strn,logo,signature,stamp,is_default').is('deleted_at', null).order('is_default', { ascending: false });
     var rows = (res && res.data) || [];
     var f = rows[0] || { name: 'OHT Accounting System', city: '', phone: '', ntn: '', logo: null };
     if (f.logo) f.logoTrim = await trimLogo(f.logo);
@@ -211,9 +211,11 @@
     var n = (firm && firm.name ? firm.name : 'OHT').trim();
     return esc(n.charAt(0).toUpperCase() || 'O');
   }
+  // one line each: address, city, phone, email, NTN, STRN (empty ones skipped)
   function firmAddr() {
     if (!firm) return '';
-    return [firm.city, firm.phone, firm.ntn ? 'NTN ' + firm.ntn : ''].filter(Boolean).join(' · ');
+    return [firm.address, firm.city, firm.phone, firm.email, firm.ntn ? 'NTN: ' + firm.ntn : '', firm.strn ? 'STRN: ' + firm.strn : '']
+      .filter(Boolean).map(function (x) { return '<div class="fa">' + esc(x) + '</div>'; }).join('');
   }
   function emptyState(big, sub) {
     return '<div class="empty-state"><div class="empty-big">' + esc(big) + '</div>' +
@@ -379,7 +381,7 @@
     var html = '<div class="pd-lh">' +
         '<div class="mk">' + firmMark() + '</div>' +
         '<div><div class="fn">' + esc(firm ? firm.name : 'OHT Accounting System') + '</div>' +
-          '<div class="fa">' + esc(firmAddr()) + '</div><div class="tag">' + esc(crumb) + ' report</div></div>' +
+          firmAddr() + '<div class="tag">' + esc(crumb) + ' report</div></div>' +
         '<div class="pd-meta">' +
           '<div><b>Report</b><span>' + esc(title) + '</span></div>' +
           '<div><b>Basis</b><span>' + esc(sub) + '</span></div>' +
