@@ -750,6 +750,10 @@
               body += '<div class="field"><label for="f_' + c.key + '_file">' + esc(c.label) + '</label>' +
                 '<input type="file" accept="image/*" id="f_' + c.key + '_file">' +
                 (rec[c.key] ? '<img class="thumb" style="margin-top:6px" src="' + esc(rec[c.key]) + '" alt="">' : '') + '</div>';
+            } else if (c.type === 'textarea') {
+              flushPending();
+              body += '<div class="field"><label for="f_' + c.key + '">' + esc(c.label) + '</label>' +
+                '<textarea id="f_' + c.key + '" rows="5">' + esc(rec[c.key]) + '</textarea>' + (c.hint ? '<div class="hint">' + esc(c.hint) + '</div>' : '') + '</div>';
             } else if (c.type === 'number') {
               pending.push('<div class="field"><label for="f_' + c.key + '">' + esc(c.label) + '</label>' +
                 '<input type="number" step="0.01" class="num" id="f_' + c.key + '" value="' + esc(rec[c.key]) + '"></div>');
@@ -909,6 +913,7 @@
     columns: [
       { key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'phone', label: 'Phone' },
       { key: 'ntn', label: 'NTN' }, { key: 'is_default', label: 'Default firm', type: 'bool' },
+      { key: 'quotation_terms', label: 'Quotation terms (default)', type: 'textarea', hint: 'Har nayi Quotation / Service Quotation mein ye terms khud aa jayenge (har Quotation mein badal sakte hain). Jaisa likhenge waisa print hoga.' },
       { key: 'logo', label: 'Logo', type: 'image' }, { key: 'signature', label: 'Signature', type: 'image' }, { key: 'stamp', label: 'Stamp', type: 'image' }
     ]
   });
