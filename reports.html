@@ -535,7 +535,9 @@
 
       var { data, error } = await sb.rpc('receivable_aging', { p_as_of: asOf });
       if (error) { setBody('ag', warnHtml(error.message)); return; }
-      var rows = (data || []).sort(function (a, b) { return b.outstanding - a.outstanding; });
+      // Receivable Aging lists only what is receivable; credit balances (payable / advance) belong to Payments Due / Trial Balance.
+      var rows = (data || []).filter(function (r) { return r.bucket !== 'payable' && r.bucket !== 'advance'; })
+        .sort(function (a, b) { return b.outstanding - a.outstanding; });
       var buckets = { notdue: 0, b0: 0, b30: 0, b60: 0, b90: 0, payable: 0, advance: 0 };
       rows.forEach(function (r) { buckets[r.bucket] = (buckets[r.bucket] || 0) + Number(r.outstanding); });
       var bucketKeys = ['notdue', 'b0', 'b30', 'b60', 'b90'];
@@ -553,7 +555,7 @@
           '<td class="num mono">' + fmt(r.original_amount) + '</td><td class="num mono">' + fmt(r.outstanding) + '</td>' +
           '<td class="num mono">' + (r.days_overdue || 0) + '</td><td><span class="pg-pill ' + (pillCls[r.bucket] || 'n') + '">' + esc(bucketLabels[r.bucket] || r.bucket) + '</span></td></tr>';
       });
-      h += '</tbody></table>';
+      h += '</tbody><tfoot><tr><td colspan="5">Total receivable</td><td class="num mono">' + fmt(rows.reduce(function (t, r) { return t + Number(r.outstanding || 0); }, 0)) + '</td><td colspan="2"></td></tr></tfoot></table>';
       setBody('ag', h);
     }
   };
@@ -885,7 +887,9 @@
       var h = '<table class="doc-table"><thead><tr><th>Party / Bill</th><th>Due date</th><th>Status</th><th class="num">Baqi</th><th></th></tr></thead><tbody>' +
         section('OVERDUE', 'dr', groups.over) + section('IS HAFTE DUE', 'wn', groups.week) + section('BAAD MEIN', 'cr', groups.later) +
         '</tbody><tfoot><tr><td colspan="3">Total</td><td class="num mono">' + fmt(sum(bills)) + '</td><td></td></tr></tfoot></table>';
-      var adv = ((isPay ? pay : recv).data || []).filter(function (r) { return r.doc_kind === 'advance'; });
+      // A credit that is really the other side's open bills (e.g. a supplier we owe, who is also a "both" party) is not an advance.
+      var otherIds = {}; (isPay ? recvBills : payBills).forEach(function (r) { otherIds[r.party_id] = true; });
+      var adv = ((isPay ? pay : recv).data || []).filter(function (r) { return r.doc_kind === 'advance' && !otherIds[r.party_id]; });
       if (adv.length) {
         h += '<div class="rpt-note" style="margin-top:10px">Advance ' + (isPay ? 'jo humne suppliers ko diya' : 'jo customers ne diya') + ': ' +
           adv.map(function (r) { return esc(r.party_name) + ' ' + fmt(r.outstanding); }).join(' · ') + '</div>';
