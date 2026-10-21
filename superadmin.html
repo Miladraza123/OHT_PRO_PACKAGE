@@ -22,7 +22,7 @@
   .kpi span{font-size:12px;color:var(--mute);}
   .bar{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;}
   .bar input[type=search]{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--line,#CBD2D9);border-radius:10px;font:inherit;background:var(--paper);color:var(--ink);}
-  .card{background:var(--paper);border:1px solid var(--hair);border-radius:14px;overflow:hidden;}
+  .card{background:var(--paper);border:1px solid var(--hair);border-radius:14px;overflow-x:auto;}
   table.t{width:100%;border-collapse:collapse;font-size:13px;}
   table.t th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);padding:10px 12px;border-bottom:1px solid var(--hair);background:var(--panel,#f5f0e8);}
   table.t td{padding:10px 12px;border-bottom:1px solid var(--hair);vertical-align:middle;}
@@ -33,6 +33,17 @@
   .sub{color:var(--mute);font-size:12px;}
   .row-acts{display:flex;gap:6px;flex-wrap:wrap;}
   .btn.sm{padding:5px 10px;font-size:12px;}
+  /* phones: each organization becomes a stacked card so Plan / Renew, Manage and Support mode are always reachable */
+  @media (max-width:720px){
+    #orgList table.t, #orgList table.t tbody, #orgList table.t tr, #orgList table.t td{display:block;width:100%;}
+    #orgList table.t thead{display:none;}
+    #orgList table.t tr{padding:12px 14px;border-bottom:1px solid var(--hair);}
+    #orgList table.t tr:last-child{border-bottom:0;}
+    #orgList table.t td{border:0;padding:3px 0;}
+    #orgList table.t td[data-l]::before{content:attr(data-l);display:inline-block;min-width:96px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);}
+    #orgList table.t td.acts{padding-top:10px;}
+    #orgList .row-acts .btn.sm{flex:1;min-width:110px;padding:9px 10px;font-size:13px;}
+  }
   .modal{position:fixed;inset:0;background:rgba(20,24,31,.55);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;z-index:50;}
   .modal .box{background:var(--paper);border-radius:16px;max-width:640px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
   .modal h3{margin:0 0 12px;font-size:17px;}
@@ -165,10 +176,10 @@
       list.map(function (o) {
         var u = o.usage || {};
         return '<tr><td><b>' + esc(o.name) + '</b><div class="sub">' + esc(o.owner_name || '') + (o.owner_email ? ' · ' + esc(o.owner_email) : '') + '</div></td>' +
-          '<td>' + esc(o.plan_name) + '</td><td>' + statusPill(o) + '</td>' +
-          '<td>' + u.users + ' / ' + o.max_users + '</td><td>' + u.firms + ' / ' + o.max_firms + '</td><td>' + u.warehouses + ' / ' + o.max_warehouses + '</td>' +
-          '<td>' + esc(expiryText(o)) + '</td>' +
-          '<td><div class="row-acts"><button type="button" class="btn sm pri" data-a="plan" data-id="' + o.id + '">Plan / Renew</button>' +
+          '<td data-l="Plan">' + esc(o.plan_name) + '</td><td data-l="Status">' + statusPill(o) + '</td>' +
+          '<td data-l="Users">' + u.users + ' / ' + o.max_users + '</td><td data-l="Firms">' + u.firms + ' / ' + o.max_firms + '</td><td data-l="Warehouses">' + u.warehouses + ' / ' + o.max_warehouses + '</td>' +
+          '<td data-l="Plan ends">' + esc(expiryText(o)) + '</td>' +
+          '<td class="acts"><div class="row-acts"><button type="button" class="btn sm pri" data-a="plan" data-id="' + o.id + '">Plan / Renew</button>' +
           '<button type="button" class="btn sm" data-a="manage" data-id="' + o.id + '">Manage</button>' +
           '<button type="button" class="btn sm" data-a="support" data-id="' + o.id + '">Support mode</button></div></td></tr>';
       }).join('') + '</tbody></table>';
