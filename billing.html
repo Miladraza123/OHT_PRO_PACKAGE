@@ -350,7 +350,7 @@
 
   // Promise<boolean>. Replaces window.confirm so a destructive step can
   // state its real consequence instead of a bare browser prompt.
-  function confirmDialog(title, body, confirmLabel, isDangerous) {
+  function confirmDialog(title, body, confirmLabel, isDangerous, cancelLabel) {
     return new Promise(function (resolve) {
       var scrim = document.getElementById('confirmScrim');
       scrim.innerHTML =
@@ -364,6 +364,7 @@
       scrim.querySelector('h4').textContent = title;
       scrim.querySelector('p').textContent = body;
       scrim.querySelector('[data-a="1"]').textContent = confirmLabel || 'OK';
+      if (cancelLabel) scrim.querySelector('[data-a="0"]').textContent = cancelLabel;
       scrim.classList.add('on');
 
       var done = false;
@@ -1158,8 +1159,10 @@
         onPick: function (id) { e.header.party_id = id || null; renderEditor(); }
       }) +
       (h.party_id ? '<div class="hint" id="partyHint">Loading balance…</div>' : '') +
+      (isSale && h.party_id && e.isNew && !e.convertingFrom ? '<div id="dcOpenHint"></div>' : '') +
       '</div>';
     if (h.party_id) setTimeout(function () { loadPartyBalance(h.party_id); }, 0);
+    if (isSale && h.party_id && e.isNew && !e.convertingFrom) setTimeout(function () { showOpenDcHint(h.party_id); }, 0);
 
     html += '<div class="sw-row">' +
       '<span class="sw-lbl">Sales tax<span class="sw-sub">Bills each line\'s tax % on top</span></span>' +
@@ -1735,6 +1738,81 @@
   }
 
   // ---------------------------------------------------------------
+  // Open Delivery Challans of a party (stock already left, invoice not made yet).
+  // Read-only and fail-safe: any problem returns [] so saving is never blocked.
+  // ---------------------------------------------------------------
+  var openDcCache = { partyId: null, at: 0, rows: [] };
+  async function openDcLinesForParty(partyId, fresh) {
+    try {
+      if (!partyId || !navigator.onLine) return [];
+      // the editor re-renders often — reuse a very recent answer for the banner, never for the save check
+      if (!fresh && openDcCache.partyId === partyId && Date.now() - openDcCache.at < 15000) return openDcCache.rows;
+      var { data: dls, error } = await sb.from('dc_lines')
+        .select('id,dc_id,item_id,qty,consumption_type,delivery_challans!inner(id,dcno,dc_date,deleted_at)')
+        .eq('delivery_challans.party_id', partyId).is('delivery_challans.deleted_at', null);
+      if (error || !dls || !dls.length) return [];
+      var billed = await billedByDcLine(dls.map(function (l) { return l.id; }));
+      var out = [];
+      dls.forEach(function (l) {
+        var left = Number(l.qty || 0) - (billed[l.id] || 0);
+        if (left > 0.0005) out.push({ id: l.id, item_id: l.item_id, left: left, consumption_type: l.consumption_type, dcno: l.delivery_challans.dcno, dc_id: l.delivery_challans.id });
+      });
+      openDcCache = { partyId: partyId, at: Date.now(), rows: out };
+      return out;
+    } catch (err) { return []; }
+  }
+
+  async function showOpenDcHint(partyId) {
+    var el = document.getElementById('dcOpenHint');
+    if (!el) return;
+    var open = await openDcLinesForParty(partyId);
+    el = document.getElementById('dcOpenHint');
+    var e = state.editing;
+    if (!el || !e || e.header.party_id !== partyId || !open.length) return;
+    var dcs = [], seen = {};
+    open.forEach(function (x) { if (!seen[x.dc_id]) { seen[x.dc_id] = 1; dcs.push(x.dcno); } });
+    el.innerHTML = '<div class="hint" style="color:#8A5A1E;margin-top:6px">⚠ Is party ki ' + dcs.length + ' DC abhi bill nahi hui: ' + esc(dcs.join(', ')) + '.</div>' +
+      '<button type="button" class="btn" id="dcOpenBtn" style="margin-top:6px">DC se invoice banayein</button>';
+    document.getElementById('dcOpenBtn').addEventListener('click', async function () {
+      var cur = state.editing;
+      if (cur && cur.lines.some(saleLineValid)) {
+        var ok = await confirmDialog('Likhi hui lines hat jayengi', 'DC se invoice banane par abhi likhi hui lines hat jayengi.', 'Haan, DC se banayein', false, 'Wapas jayein');
+        if (!ok) return;
+      }
+      makeInvoiceFromDc(partyId);
+    });
+  }
+
+  // Before saving a sale: a NEW direct line for an item that is still open on one of the
+  // party's Delivery Challans would take the stock out a second time. Ask first.
+  // Returns true to go ahead with the save.
+  async function confirmNoDoubleStock(e) {
+    try {
+      if (state.vtype !== 'sale' || !e.header.party_id || e.convertingFrom) return true;
+      var direct = e.lines.filter(function (l) { return saleLineValid(l) && !l.id && !l.dc_line_id && l.item_id && l.consumption_type === 'general_goods'; });
+      if (!direct.length) return true;
+      var open = await openDcLinesForParty(e.header.party_id, true);
+      if (!open.length) return true;
+      var hits = {}, order = [];
+      direct.forEach(function (l) {
+        open.filter(function (x) { return x.item_id === l.item_id && x.consumption_type === 'general_goods'; }).forEach(function (x) {
+          var h = hits[l.item_id] = hits[l.item_id] || { qty: 0, dcs: [] };
+          if (!h.qty && !h.dcs.length) order.push(l.item_id);
+          h.qty += x.left; if (h.dcs.indexOf(x.dcno) < 0) h.dcs.push(x.dcno);
+        });
+      });
+      if (!order.length) return true;
+      var list = order.map(function (id) {
+        var it = itemById(id), h = hits[id];
+        return (it ? it.name : 'Item') + ' ' + qtyStr(h.qty) + (it && it.unit ? ' ' + it.unit : '') + ' (' + h.dcs.join(', ') + ')';
+      }).join(', ');
+      return await confirmDialog('Stock dobara kam hoga',
+        'Ye maal pehle DC mein nikal chuka hai: ' + list + '. Alag invoice se stock dobara kam hoga.',
+        'Phir bhi save karein', false, 'Wapas jayein');
+    } catch (err) { return true; }
+  }
+
+  // ---------------------------------------------------------------
   // Save — via smart_merge_update / smart_merge_lines / apply_merged_lines
   // ---------------------------------------------------------------
   async function saveVoucher() {
@@ -1743,6 +1821,7 @@
     errEl.textContent = '';
     var vErr = validate();
     if (vErr) { errEl.textContent = vErr; return; }
+    if (!(await confirmNoDoubleStock(e))) return;
 
     var totals = computeTotals();
 
@@ -4153,8 +4232,8 @@
     });
   }
 
-  async function makeInvoiceFromDc() {
-    var t = dcEditing, partyId = t.header.party_id;
+  async function makeInvoiceFromDc(forPartyId) {
+    var t = typeof forPartyId === 'string' ? { id: null, header: { party_id: forPartyId } } : dcEditing, partyId = t.header.party_id;
     var { data: dls, error } = await sb.from('dc_lines')
       .select('*, delivery_challans!inner(id,dcno,dc_date,party_id,company_id,deleted_at)')
       .eq('delivery_challans.party_id', partyId).is('delivery_challans.deleted_at', null).order('line_no');
