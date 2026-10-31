@@ -486,7 +486,8 @@
     document.getElementById('navAccount').innerHTML = acctSet.map(navItemHtml).join('');
     document.getElementById('exitSupportBtn').style.display = (ctx && ctx.role === 'superadmin' && ctx.support_org_id) ? '' : 'none';
 
-    document.getElementById('sidebar').addEventListener('click', function (e) {
+    // assigned (not added) so a second sign-in on the same page never stacks a second handler — two handlers toggled a group open and shut again
+    document.getElementById('sidebar').onclick = function (e) {
       var cat = e.target.closest('.cat');
       if (cat) {
         var open = cat.getAttribute('aria-expanded') === 'true';
@@ -500,7 +501,7 @@
         setDrawer(false);
         openModule(item.dataset.app, item.dataset.arg || null);
       }
-    });
+    };
   }
 
   function navLabelFor(app, arg) {
