@@ -78,7 +78,7 @@
   @media (max-width:860px){ #planChip{display:none !important;} .shellbar .abtn{padding-left:9px; padding-right:9px;} }
   #planChip{font-size:11.5px; font-weight:600; color:var(--mute); background:var(--panel,#f5f0e8); border:1px solid var(--hair); border-radius:999px; padding:3px 10px; white-space:nowrap;}
   #sidebar > *{flex-shrink:0;}  /* a long menu must scroll, never squash the title / organization line */
-  #sidebar .orgname{font-size:11.5px; color:#B8AF9E; padding:0 14px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #sidebar .orgname{font-size:11.5px; line-height:1.35; color:#B8AF9E; padding:0 14px 8px; white-space:normal; overflow-wrap:anywhere;}
 
   /* ---- sign-in screen: untouched original design (scoped palette) ---- */
   #authScreen, #loading{
@@ -272,7 +272,7 @@
     }, isError ? 5200 : 3200);
   }
 
-  function confirmDialog(title, body, confirmLabel, isDangerous) {
+  function confirmDialog(title, body, confirmLabel, isDangerous, cancelLabel) {
     return new Promise(function (resolve) {
       var scrim = document.createElement('div');
       scrim.className = 'confirm-scrim on';
@@ -282,7 +282,7 @@
       var p = document.createElement('p'); p.textContent = body;
       var acts = document.createElement('div'); acts.className = 'acts';
       var cancelBtn = document.createElement('button');
-      cancelBtn.className = 'btn'; cancelBtn.type = 'button'; cancelBtn.textContent = 'Cancel';
+      cancelBtn.className = 'btn'; cancelBtn.type = 'button'; cancelBtn.textContent = cancelLabel || 'Cancel';
       var okBtn = document.createElement('button');
       okBtn.className = 'btn ' + (isDangerous ? 'dgr' : 'pri'); okBtn.type = 'button';
       okBtn.textContent = confirmLabel || 'OK';
@@ -575,6 +575,7 @@
   var reloadStamp = Date.now();
   document.getElementById('reloadBtn').addEventListener('click', function () {
     reloadStamp = Date.now();
+    clearAppCaches().then(function () { try { checkForNewBuild(true); } catch (e) {} });
     Object.keys(frames).forEach(function (key) {
       var m = MODULES.filter(function (x) { return x.key === key; })[0];
       if (!m) return;
@@ -700,7 +701,7 @@
   function renderOrgInfo() {
     var bn = document.getElementById('orgBanner'), chip = document.getElementById('planChip');
     var org = ctx && ctx.org;
-    document.getElementById('orgName').textContent = org ? (org.name + ' · ' + org.plan_name + (org.plan_expires_on ? ' · till ' + org.plan_expires_on : '')) : (ctx && ctx.role === 'superadmin' ? 'Superadmin' : '');
+    document.getElementById('orgName').textContent = org ? (org.name + ' · ' + org.plan_name + (org.plan_expires_on ? ' · till ' + org.plan_expires_on : ' · koi expiry nahi')) : (ctx && ctx.role === 'superadmin' ? 'Superadmin' : '');
     bn.className = ''; bn.innerHTML = '';
     if (ctx && ctx.role === 'superadmin' && ctx.support_org_id && org) {
       bn.className = 'on support';
@@ -861,18 +862,61 @@
     });
   }
   var updatePromptShown = false;
-  function promptForUpdate() {
+  // Refresh = throw away the saved copies of the app files first, so ONE refresh brings the new
+  // version (before, the first reload served the old saved files and a second one was needed).
+  function clearAppCaches() {
+    if (!window.caches) return Promise.resolve();
+    return caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }).catch(function () {});
+  }
+  function promptForUpdate(sig) {
     if (updatePromptShown) return;
     updatePromptShown = true;
     confirmDialog(
-      'New version available',
-      'An updated version of OHT Accounting System (PRO) is ready. Refresh to start using it — anything still syncing in the background is not affected.',
-      'Refresh', false
+      'Nayi version aa gayi hai',
+      'OHT Accounting System (PRO) ki nayi version tayyar hai. Refresh dabayein taake nayi version chalne lage. Jo kuch sync ho raha hai wo mehfooz rahta hai.',
+      'Refresh', false, 'Baad mein'
     ).then(function (ok) {
       updatePromptShown = false;
-      if (ok) window.location.reload();
+      if (ok) { if (sig) { try { localStorage.setItem(BUILD_KEY, sig); } catch (e) {} } clearAppCaches().then(function () { window.location.reload(); }); }
+      else dismissedSig = sig || dismissedSig;
     });
   }
+
+  // Automatic "new version" detection. Every deploy changes the files' ETag / Last-Modified, so the
+  // app compares a signature of its main files with the one it last started with — no manual version
+  // number to bump. Any failure (offline, no header) just means "no news": it can never block the app.
+  var BUILD_KEY = 'oht:buildSig', dismissedSig = null, lastBuildCheck = 0;
+  var BUILD_FILES = ['index.html', 'masters.html', 'billing.html', 'daily-ledger.html', 'reports.html', 'superadmin.html', 'help.js', 'mt.js', 'offline-queue.js', 'logo-trim.js', 'theme.css', 'sw.js'];
+  function readBuildSig() {
+    return Promise.all(BUILD_FILES.map(function (f) {
+      return fetch(f + '?chk=' + Date.now(), { method: 'HEAD', cache: 'no-store' }).then(function (r) {
+        if (!r.ok) return null;
+        return f + ':' + (r.headers.get('etag') || r.headers.get('last-modified') || r.headers.get('content-length') || '');
+      }).catch(function () { return null; });
+    })).then(function (parts) {
+      if (parts.some(function (p) { return !p || /:$/.test(p); })) return null;   // incomplete answer: do not guess
+      var str = parts.join('|'), h = 5381;
+      for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+      return String(h);
+    });
+  }
+  function checkForNewBuild(force) {
+    if (!navigator.onLine || !currentUserId) return;
+    var now = Date.now();
+    if (!force && now - lastBuildCheck < 3 * 60 * 1000) return;
+    lastBuildCheck = now;
+    readBuildSig().then(function (sig) {
+      if (!sig) return;
+      var known = null; try { known = localStorage.getItem(BUILD_KEY); } catch (e) {}
+      if (!known) { try { localStorage.setItem(BUILD_KEY, sig); } catch (e) {} return; }   // first run: remember, do not nag
+      if (sig === known || sig === dismissedSig) return;
+      // confirm with a second read a few seconds later: a signature that keeps flipping (CDN noise) must never nag
+      setTimeout(function () { readBuildSig().then(function (again) { if (again && again === sig) promptForUpdate(sig); }); }, 4000);
+    });
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkForNewBuild(false); });
+  setInterval(function () { checkForNewBuild(false); }, 10 * 60 * 1000);
+  setTimeout(function () { checkForNewBuild(true); }, 8000);
 
   // ---------------------------------------------------------------
   // PWA install button — always visible until installed, whether or not
