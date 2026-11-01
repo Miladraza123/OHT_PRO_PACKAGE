@@ -78,7 +78,7 @@
   @media (max-width:860px){ #planChip{display:none !important;} .shellbar .abtn{padding-left:9px; padding-right:9px;} }
   #planChip{font-size:11.5px; font-weight:600; color:var(--mute); background:var(--panel,#f5f0e8); border:1px solid var(--hair); border-radius:999px; padding:3px 10px; white-space:nowrap;}
   #sidebar > *{flex-shrink:0;}  /* a long menu must scroll, never squash the title / organization line */
-  #sidebar .orgname{font-size:11.5px; color:#B8AF9E; padding:0 14px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #sidebar .orgname{font-size:11.5px; line-height:1.35; color:#B8AF9E; padding:0 14px 8px; white-space:normal; overflow-wrap:anywhere;}
 
   /* ---- sign-in screen: untouched original design (scoped palette) ---- */
   #authScreen, #loading{
@@ -701,7 +701,7 @@
   function renderOrgInfo() {
     var bn = document.getElementById('orgBanner'), chip = document.getElementById('planChip');
     var org = ctx && ctx.org;
-    document.getElementById('orgName').textContent = org ? (org.name + ' · ' + org.plan_name + (org.plan_expires_on ? ' · till ' + org.plan_expires_on : '')) : (ctx && ctx.role === 'superadmin' ? 'Superadmin' : '');
+    document.getElementById('orgName').textContent = org ? (org.name + ' · ' + org.plan_name + (org.plan_expires_on ? ' · till ' + org.plan_expires_on : ' · koi expiry nahi')) : (ctx && ctx.role === 'superadmin' ? 'Superadmin' : '');
     bn.className = ''; bn.innerHTML = '';
     if (ctx && ctx.role === 'superadmin' && ctx.support_org_id && org) {
       bn.className = 'on support';

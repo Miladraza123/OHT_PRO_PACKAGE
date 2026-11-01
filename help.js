@@ -129,7 +129,9 @@
     { sel: '#sidebar .cat[data-gi="3"]', drawer: true, title: 'Reports', text: 'Trial Balance, Aging, Profit & Loss, Statement of Account, Payments Due, Stock Ledger — poore karobar ka hisaab yahan dekhein.' },
     { sel: '#navTools', drawer: true, title: 'Tools', text: 'Backup/Restore (data ki copy), Recycle Bin (delete ki hui cheez wapas) aur Period Lock (purana hisaab lock karna).' },
     { sel: '#navAccount', drawer: true, title: 'Account', text: 'Manage Users se employees add karein (owner), Change Password se apna password badlein, aur yahin se Help bhi khulti hai.' },
-    { sel: '#planChip', drawer: false, title: 'Aap ka plan', text: 'Yahan aap ka plan aur uski akhri tareekh nazar aati hai. Users/firms/warehouses ki limit Help mein likhi hai. Tareekh guzarne par app sirf-dekhne mode mein chali jati hai.' },
+    { sel: '#planChip', drawer: false, selNarrow: '#orgName', drawerNarrow: true, title: 'Aap ka plan',
+      text: 'Upar ki patti mein aap ka plan aur uski akhri tareekh nazar aati hai (jaise \u201cPro \u00b7 till 2026-11-20\u201d). Users/firms/warehouses ki limit Help mein likhi hai. Tareekh guzarne par app sirf-dekhne mode mein chali jati hai.',
+      textNarrow: 'Menu ki upar wali line (company ke naam ke neeche) mein aap ka plan aur uski akhri tareekh likhi hoti hai, jaise \u201cdemo \u00b7 Standard \u00b7 till 2026-11-20\u201d. Users/firms/warehouses ki limit Help mein likhi hai. Tareekh guzarne par app sirf-dekhne mode mein chali jati hai.' },
     { sel: '#helpBtn', drawer: false, title: 'Help hamesha maujood', text: 'Kisi bhi waqt yahan “? Help” dabayen — har screen ki wazahat Roman Urdu mein hai, aur ye tour dobara bhi chal sakta hai.' },
     { title: 'Bas! Shuru karein', text: 'Pehle Masters mein Firm, Parties aur Items daalein, phir Sale/Purchase ka bill banayen. Allah aap ke karobar mein barkat dey!' }
   ];
@@ -144,12 +146,14 @@
   }
   function showStep(i) {
     tourIdx = i;
-    var s = STEPS[i];
+    var s = Object.assign({}, STEPS[i]);
+    var narrow = window.innerWidth <= 860;
+    if (narrow && s.selNarrow) { s.sel = s.selNarrow; s.drawer = !!s.drawerNarrow; if (s.textNarrow) s.text = s.textNarrow; }   // e.g. the plan chip is not in the phone's top bar
     clearHl();
     var target = null;
     if (s.sel) {
       // the slide-out menu (and its dark backdrop) only exists on narrow screens; on a desktop the sidebar is always visible
-      cfg.setDrawer(!!s.drawer && window.innerWidth <= 860);
+      cfg.setDrawer(!!s.drawer && narrow);
       target = document.querySelector(s.sel);
       if (target && target.offsetParent === null && !s.drawer) target = null;
     } else { cfg.setDrawer(false); }
@@ -177,7 +181,13 @@
       card.style.left = Math.min(window.innerWidth - 380, Math.max(12, r.right + 16)) + 'px';
       card.style.top = Math.max(12, Math.min(window.innerHeight - 220, r.top)) + 'px';
     } else if (target) {
-      card.style.left = '50%'; card.style.transform = 'translateX(-50%)'; card.style.bottom = '14px';
+      // phone: put the card on whichever edge does not cover the thing it is describing
+      var tr = target.getBoundingClientRect(), ch = card.offsetHeight || 190, vh = window.innerHeight;
+      var overBottom = Math.max(0, tr.bottom - (vh - ch - 14)) - Math.max(0, tr.top - (vh - ch - 14));
+      var coverBottom = Math.min(tr.bottom, vh) - Math.max(tr.top, vh - ch - 14);
+      var coverTop = Math.min(tr.bottom, ch + 14) - Math.max(tr.top, 0);
+      card.style.left = '50%'; card.style.transform = 'translateX(-50%)';
+      if (coverBottom > 0 && coverBottom > coverTop) card.style.top = '14px'; else card.style.bottom = '14px';
     } else {
       card.style.left = '50%'; card.style.top = '50%'; card.style.transform = 'translate(-50%,-50%)';
     }
