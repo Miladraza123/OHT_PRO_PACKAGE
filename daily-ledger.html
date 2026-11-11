@@ -69,7 +69,7 @@
   /* "Sheets" drop-down (recent saved days) */
   .dl-sheets { position:relative; }
   .dl-menu {
-    display:none; position:absolute; right:0; top:calc(100% + 6px); z-index:70; min-width:230px; max-height:320px; overflow:auto;
+    display:none; position:absolute; right:0; top:calc(100% + 6px); z-index:70; min-width:230px; max-width:calc(100vw - 16px); max-height:320px; overflow:auto;
     background:var(--paper); border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 28px rgba(31,25,20,.22); padding:6px;
   }
   .dl-menu.on { display:block; }
@@ -691,6 +691,16 @@
     if (!m || !b) return;
     m.classList.toggle('on', !!open);
     b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) placeSheetsMenu(m);
+  }
+  // The menu hangs off the button's right edge; on a phone the button sits at the left, so the menu ran off the screen.
+  // After it opens, slide it sideways just enough to sit fully inside the window.
+  function placeSheetsMenu(m) {
+    m.style.transform = '';
+    var r = m.getBoundingClientRect(), w = window.innerWidth, dx = 0;
+    if (r.left < 8) dx = 8 - r.left;
+    else if (r.right > w - 8) dx = w - 8 - r.right;
+    if (dx) m.style.transform = 'translateX(' + Math.round(dx) + 'px)';
   }
   document.getElementById('sheetsBtn').addEventListener('click', function (e) {
     e.stopPropagation();
@@ -2188,6 +2198,7 @@
 
   function renderSheetsList() {
     var el = document.getElementById('sheetsList');
+    setTimeout(function () { var m = document.getElementById('sheetsMenu'); if (m && m.classList.contains('on')) placeSheetsMenu(m); }, 0);   // the list may change the menu's width
     if (!recentSheets.length) {
       el.innerHTML = '<div class="sheets-empty">' +
         (navigator.onLine ? 'No saved sheets yet.' : 'Offline — recent sheets will appear once you are back online.') +
